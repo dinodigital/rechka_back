@@ -1,0 +1,125 @@
+{
+    "type": "create_mode",
+    "mode_name": "Базовый отчет",
+    "row": 3,
+    "sheet_id": null,
+    "params": {
+        "context": "Ты эксперт по продажам и сервису. Ты анализируешь разговор по телефону между менеджером по продажам (далее МОП) и потенциальным клиентом. \n\nОпирайся только на факты, которые озвучены в разговоре, не додумывай.",
+        "final_model": "anthropic/claude-3-5-sonnet",
+        "max_output_size": 4000,
+        "questions": [
+            {
+                "question": "Оцени вероятность продажи в %",
+                "context": null,
+                "answer_format": "%",
+                "answer_options": null,
+                "short_name": "Вероятность продажи"
+            },
+            {
+                "question": "Объясни оценку вероятности продажи",
+                "context": null,
+                "answer_format": null,
+                "answer_options": null,
+                "short_name": "Объяснение оценки"
+            },
+            {
+                "question": "Результат разговора одним предложением",
+                "context": null,
+                "answer_format": null,
+                "answer_options": null,
+                "short_name": "Итог разговора"
+            },
+            {
+                "question": "Краткое резюме разговора. Упоминать детали, имена, даты, названия. Не более 500 символов",
+                "context": null,
+                "answer_format": null,
+                "answer_options": null,
+                "short_name": "Подробное резюме разговора"
+            },
+            {
+                "question": "Оцени положительный настрой клиента в %.",
+                "context": null,
+                "answer_format": "%",
+                "answer_options": null,
+                "short_name": "Настрой %"
+            },
+            {
+                "question": "Объясни оценку положительного настроя. Не более 200 символов",
+                "context": null,
+                "answer_format": null,
+                "answer_options": null,
+                "short_name": "Объяснение оценки"
+            },
+            {
+                "question": "Перечисли важные факты о клиенте.",
+                "context": null,
+                "answer_format": "Ненумерованный список",
+                "answer_options": null,
+                "short_name": "Факты"
+            },
+            {
+                "question": "Перечисли потребности клиента.",
+                "context": null,
+                "answer_format": "Ненумерованный список",
+                "answer_options": null,
+                "short_name": "Потребности"
+            },
+            {
+                "question": "Перечисли возражения и сомнения клиента без цитат своими словами",
+                "context": null,
+                "answer_format": "Ненумерованный список",
+                "answer_options": null,
+                "short_name": "Возражения"
+            },
+            {
+                "question": "Оцени вежливость МОПа в %",
+                "context": "100% - это хорошая, но не чрезмерная вежливость, а 0% это грубость",
+                "answer_format": "%",
+                "answer_options": null,
+                "short_name": "Вежливость %"
+            },
+            {
+                "question": "Объясни оценку вежливости МОПа. Не более 200 символов",
+                "context": null,
+                "answer_format": null,
+                "answer_options": null,
+                "short_name": "Объяснение оценки"
+            },
+            {
+                "question": "Оцени качество презентации МОПом продукта/услуги в %.",
+                "context": "100% - идеально, 50% - нейтрально, 0% - ужасно",
+                "answer_format": "%",
+                "answer_options": null,
+                "short_name": "Презентация %"
+            },
+            {
+                "question": "Объясни оценку качества презентации МОПом. Не более 200 символов",
+                "context": null,
+                "answer_format": null,
+                "answer_options": null,
+                "short_name": "Объяснение оценки"
+            },
+            {
+                "question": "Оцени качество отработки МОПом возражений клиента в %.",
+                "context": "100% - идеально, 50% - нейтрально, 0% - ужасно",
+                "answer_format": "%",
+                "answer_options": null,
+                "short_name": "Возражения"
+            },
+            {
+                "question": "Объясни оценку качества отработки МОПом возражений. Не более 200 символов",
+                "context": null,
+                "answer_format": null,
+                "answer_options": null,
+                "short_name": "Объяснение оценки"
+            },
+            {
+                "question": "На что МОПу следует обратить внимание, чтобы улучшить работу?",
+                "context": null,
+                "answer_format": "Ненумерованный список",
+                "answer_options": null,
+                "short_name": "Советы МОПу"
+            }
+        ]
+    }
+}

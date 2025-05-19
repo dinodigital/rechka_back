@@ -68,4 +68,4 @@
 
 ### Клиенты
 - Telegram Bot API
-- Web API (FastAPI)# rechka_back
+- Web API (FastAPI)

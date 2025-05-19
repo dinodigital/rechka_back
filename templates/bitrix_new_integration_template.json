@@ -1,0 +1,44 @@
+{
+  "type": "create_integration",
+  "service_name": "bitrix24",
+  "telegram_id": 666666,
+  "account_id": "domain",
+  "data": {
+    "access": {
+      "application_token": "",
+      "webhook_url": ""
+    },
+    "settings": {
+    },
+    "filters": {
+      "min_duration": 0,
+      "pipelines_in": [],
+      "pipelines_not_in": [],
+      "statuses_in": [],
+      "statuses_not_in": [],
+      "responsible_users": [],
+      "responsible_users_not_in": [],
+      "write_note": true,
+      "bitrix_entities_in": [],
+      "only_first_call": false,
+      "restricted_phones": [],
+      "allowed_call_types": ["in", "out"],
+      "custom_fields": [
+        {
+          "name": "UF_CRM_XXXXXXXXXXXXX",
+          "description": "Описание поля",
+          "value_in": [],
+          "value_not_in": []
+        }
+      ]
+    },
+    "crm_data": {
+      "system_fields": ["entity_link", "phone_number", "call_type", "index_number", "pipeline", "stage"],
+      "user_fields": [],
+      "crm_fields": [
+        {"crm_entity_type": "DEAL", "crm_field_id": "STAGE_ID", "comment": "Номер этапа"},
+        {"crm_entity_type": "LEAD", "crm_field_id": "COMPANY_TITLE", "comment": "Название компании"}
+      ]
+    }
+  }
+}

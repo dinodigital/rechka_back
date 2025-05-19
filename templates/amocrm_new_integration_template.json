@@ -1,0 +1,44 @@
+{
+  "type": "create_integration",
+  "service_name": "amocrm",
+  "telegram_id": ❗️int,
+  "account_id": ❗️int,
+  "data": {
+    "settings": {
+      "entity_deal_number": "first" | "last" | 5
+    },
+    "access": {
+      "subdomain": "❗️str",
+      "redirect_uri": "https://t.me/speechka_ai_bot",
+      "client_secret": "❗️str",
+      "client_id": "❗️str",
+      "code": "❗️str",
+      "access_token": "",
+      "refresh_token": ""
+    },
+    "filters": {
+      "min_duration": ❗️int,
+      "max_duration": ❗️int,
+      "pipelines_in": [],
+      "pipelines_not_in": [],
+      "statuses_in": [],
+      "statuses_not_in": [],
+      "responsible_users": [],
+      "responsible_users_not_in": [],
+      "write_note": ❗️true,
+      "only_first_call": ❗️false,
+      "restricted_phones": [],
+      "allowed_call_types": ["in", "out"]
+    },
+    "crm_data": {
+      "system_fields": ["entity_link", "phone_number", "call_type", "index_number"],
+      "crm_fields": [
+        {"crm_entity_type": "LEAD", "crm_field_id": "name", "comment": "Название сделки"},
+        {"crm_entity_type": "LEAD", "crm_field_id": "created_by", "comment": "ID пользователя, создающий сделку"},
+        {"crm_entity_type": "CONTACT", "crm_field_id": "id", "comment": "ID контакта"},
+        {"crm_entity_type": "CONTACT", "crm_field_id": "responsible_user_id", "comment": "ID пользователя, ответственного за контакт"},
+        {"crm_entity_type": "LEAD", "crm_field_id": "1171419", "comment": "Вакансия"}
+      ]
+    }
+  }
+}

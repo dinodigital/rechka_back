@@ -1,0 +1,43 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pyrogram = "*"
+tgcrypto = "*"
+loguru = "*"
+python-dotenv = "*"
+peewee = "*"
+openai = "*"
+assemblyai = "*"
+retry2 = "*"
+pydub = "*"
+gspread = "*"
+pytz = "*"
+fastapi = "*"
+uvicorn = {extras = ["standard"], version = "*"}
+amocrm-api = "*"
+requests = "*"
+bitrix24-rest = {ref = "master", git = "git+https://github.com/dinodigital/bitrix24-python-rest.git"}
+redis = "*"
+python-multipart = "*"
+apscheduler = "*"
+cryptography = "*"
+boto3 = "*"
+phonenumbers = "*"
+sentry-sdk = {extras = ["fastapi"], version = "*"}
+beeline-portal = {ref = "master", git = "git+https://github.com/dinodigital/beeline_portal.git"}
+psycopg2 = "*"
+kombu = "*"
+sipuni-api = "*"
+pyjwt = "*"
+passlib = {extras = ["bcrypt"], version = "*"}
+celery = {extras = ["redis"], version = "*"}
+flower = "*"
+gunicorn = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.10"

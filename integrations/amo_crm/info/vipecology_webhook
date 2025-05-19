@@ -1,0 +1,34 @@
+FormData([('account[subdomain]', 'vipecology'), ('account[id]', '7847200'), ('account[_links][self]', 'https://vipecology.amocrm.ru'), ('contacts[note][0][note][note_type]', '11'), ('contacts[note][0][note][element_type]', '1'), ('contacts[note][0][note][element_id]', '87578147'), ('contacts[note][0][note][date_create]', '2024-03-27 14:57:57'), ('contacts[note][0][note][text]', '{"PHONE":"79263817525","UNIQ":"38253188-48da-4e7c-88b5-af83636398cb","DURATION":91,"SRC":"onlinePBX","LINK":"https:\\/\\/vipecology.onpbx.ru\\/download_amocrm\\/eyJ1IjoiMzgyNTMxODgtNDhkYS00ZTdjLTg4YjUtYWY4MzYzNjM5OGNiIiwiZCI6OTEsInNzIjoxNzExNTQwNjc3LCJmIjoiMTAzIiwidCI6Iis3OTI2MzgxNzUyNSIsImlkIjoieFVhS2dJTndHeGJvTEVRRCJ9_2N1Qz8yST0os+xyZmuBbXhmZ+v6nr7w0xWGYKSwGum8=\\/rec.mp3","call_status":4}'), ('contacts[note][0][note][created_by]', '273276'), ('contacts[note][0][note][main_user_id]', '273276'), ('contacts[note][0][note][timestamp_x]', '2024-03-27 14:59:31'), ('contacts[note][0][note][account_id]', '7847200'), ('contacts[note][0][note][metadata]', '{"event_source":{"id":273276,"author_name":"\\u0415\\u043a\\u0430\\u0442\\u0435\\u0440\\u0438\\u043d\\u0430 \\u0413\\u043e\\u0441\\u0442\\u0435\\u0432\\u0430","type":1}}'), ('contacts[note][0][note][modified_by]', '273276'), ('contacts[note][0][note][id]', '474997635'), ('contacts[note][0][note][created_at]', '1711540677'), ('contacts[note][0][note][updated_at]', '1711540771'), ('contacts[note][0][type]', 'contact')])
+
+{
+  "account": {
+    "subdomain": "vipecology",
+    "id": "7847200",
+    "_links": {
+      "self": "https://vipecology.amocrm.ru"
+    }
+  },
+  "contacts": {
+    "note": [
+      {
+        "note": {
+          "note_type": "11",
+          "element_type": "1",
+          "element_id": "87578147",
+          "date_create": "2024-03-27 14:57:57",
+          "text": "{\"PHONE\":\"79263817525\",\"UNIQ\":\"38253188-48da-4e7c-88b5-af83636398cb\",\"DURATION\":91,\"SRC\":\"onlinePBX\",\"LINK\":\"https:\\/\\/vipecology.onpbx.ru\\/download_amocrm\\/eyJ1IjoiMzgyNTMxODgtNDhkYS00ZTdjLTg4YjUtYWY4MzYzNjM5OGNiIiwiZCI6OTEsInNzIjoxNzExNTQwNjc3LCJmIjoiMTAzIiwidCI6Iis3OTI2MzgxNzUyNSIsImlkIjoieFVhS2dJTndHeGJvTEVRRCJ9_2N1Qz8yST0os+xyZmuBbXhmZ+v6nr7w0xWGYKSwGum8=\\/rec.mp3\",\"call_status\":4}",
+          "created_by": "273276",
+          "main_user_id": "273276",
+          "timestamp_x": "2024-03-27 14:59:31",
+          "account_id": "7847200",
+          "metadata": "{\"event_source\":{\"id\":273276,\"author_name\":\"\\u0415\\u043a\\u0430\\u0442\\u0435\\u0440\\u0438\\u043d\\u0430 \\u0413\\u043e\\u0441\\u0442\\u0435\\u0432\\u0430\",\"type\":1}}",
+          "modified_by": "273276",
+          "id": "474997635",
+          "created_at": "1711540677",
+          "updated_at": "1711540771"
+        },
+        "type": "contact"
+      }
+    ]
+  }
+}

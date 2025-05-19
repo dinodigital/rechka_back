@@ -1,0 +1,22 @@
+{'auth': {'application_token': '9ggezm8k3vog0j1rmwydpw3kzqujow1g',
+          'client_endpoint': 'https://domain_name.bitrix24.ru/rest/',
+          'domain': 'domain_name.bitrix24.ru',
+          'member_id': '7862aa6433951ea70f3c442b421b8a2d',
+          'server_endpoint': 'https://oauth.bitrix.info/rest/'},
+ 'data': {'CALL_DURATION': '6',
+          'CALL_FAILED_CODE': '200',
+          'CALL_FAILED_REASON': 'Success call',
+          'CALL_ID': '9D4AE580B934DFA6.1716322059.4432331',
+          'CALL_START_DATE': '2024-05-21T23:07:39+03:00',
+          'CALL_TYPE': '1',
+          'COST': '1.76952',
+          'COST_CURRENCY': 'RUR',
+          'CRM_ACTIVITY_ID': '704416',
+          'PHONE_NUMBER': '+79031601020',
+          'PORTAL_NUMBER': '79581002958',
+          'PORTAL_USER_ID': '1496'},
+ 'event': 'ONVOXIMPLANTCALLEND',
+ 'event_id': '1414',
+ 'ts': '1716322080'}
+
+b'event=ONVOXIMPLANTCALLEND&event_id=1426&data%5BCALL_ID%5D=F9350783B9FE569F.1716407229.14007&data%5BCALL_TYPE%5D=1&data%5BPHONE_NUMBER%5D=%2B79031601020&data%5BPORTAL_NUMBER%5D=79581002958&data%5BPORTAL_USER_ID%5D=1496&data%5BCALL_DURATION%5D=5&data%5BCALL_START_DATE%5D=2024-05-22T22%3A47%3A10%2B03%3A00&data%5BCOST%5D=1.76952&data%5BCOST_CURRENCY%5D=RUR&data%5BCALL_FAILED_CODE%5D=200&data%5BCALL_FAILED_REASON%5D=Success+call&data%5BCRM_ACTIVITY_ID%5D=705240&ts=1716407243&auth%5Bdomain%5D=golubitskiy.bitrix24.ru&auth%5Bclient_endpoint%5D=https%3A%2F%2Fgolubitskiy.bitrix24.ru%2Frest%2F&auth%5Bserver_endpoint%5D=https%3A%2F%2Foauth.bitrix.info%2Frest%2F&auth%5Bmember_id%5D=7862aa6433957ea70f3c442b420b8a2c&auth%5Bapplication_token%5D=b1w79gehkm5qfh7pwwllvidr2b71usjl'

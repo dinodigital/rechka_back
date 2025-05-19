@@ -1,0 +1,36 @@
+FormData([('account[subdomain]', 'lendl'), ('account[id]', '16393078'), ('account[_links][self]', 'https://lendl.amocrm.ru'), ('leads[note][0][note][note_type]', '11'), ('leads[note][0][note][element_type]', '2'), ('leads[note][0][note][element_id]', '29616046'), ('leads[note][0][note][text]', '{"PHONE":"+79169469994","UNIQ":738764,"SRC":"moizvonkiru","call_status":6,"DURATION":0}'), ('leads[note][0][note][date_create]', '2024-01-29 15:47:22'), ('leads[note][0][note][timestamp_x]', '2024-01-29 15:47:22'), ('leads[note][0][note][created_by]', '6363108'), ('leads[note][0][note][modified_by]', '6363108'), ('leads[note][0][note][main_user_id]', '6363108'), ('leads[note][0][note][account_id]', '16393078'), ('leads[note][0][note][metadata]', '{"event_source":{"id":6363108,"author_name":"\\u0418\\u0440\\u0438\\u043d\\u0430 \\u041a\\u0430\\u043d\\u0438\\u0449\\u0435\\u0432\\u0430","type":1}}'), ('leads[note][0][note][group_id]', '314481'), ('leads[note][0][note][id]', '304500328'), ('leads[note][0][note][created_at]', '1706532442'), ('leads[note][0][note][updated_at]', '1706532442')])
+
+FormData([('account[subdomain]', 'lendl'), ('account[id]', '16393078'), ('account[_links][self]', 'https://lendl.amocrm.ru'), ('leads[note][0][note][note_type]', '11'), ('leads[note][0][note][element_type]', '2'), ('leads[note][0][note][element_id]', '31398802'), ('leads[note][0][note][text]', '{"PHONE":"+79651220851","UNIQ":738832,"DURATION":150,"SRC":"moizvonkiru","LINK":"https:\\/\\/landl.moizvonki.ru\\/calls\\/recordings\\/TQlAsGPFyNXQFeRlOBgcgSlSMNMloylQ.m4a\\/","call_status":4}'), ('leads[note][0][note][date_create]', '2024-01-29 17:08:31'), ('leads[note][0][note][timestamp_x]', '2024-01-29 17:08:31'), ('leads[note][0][note][created_by]', '6363054'), ('leads[note][0][note][modified_by]', '6363054'), ('leads[note][0][note][main_user_id]', '6363054'), ('leads[note][0][note][account_id]', '16393078'), ('leads[note][0][note][metadata]', '{"event_source":{"id":6363054,"author_name":"\\u041e\\u043b\\u044c\\u0433\\u0430 \\u041a\\u043b\\u0438\\u043d\\u043e\\u0432\\u0430","type":1}}'), ('leads[note][0][note][group_id]', '176445'), ('leads[note][0][note][id]', '304503582'), ('leads[note][0][note][created_at]', '1706537311'), ('leads[note][0][note][updated_at]', '1706537311')])
+
+{
+  "account": {
+    "subdomain": "lendl",
+    "id": "16393078",
+    "_links": {
+      "self": "https://lendl.amocrm.ru"
+    }
+  },
+  "leads": {
+    "note": [
+      {
+        "note": {
+          "note_type": "11",
+          "element_type": "2",
+          "element_id": "31398802",
+          "text": "{\"PHONE\":\"+79651220851\",\"UNIQ\":738832,\"DURATION\":150,\"SRC\":\"moizvonkiru\",\"LINK\":\"https:\\/\\/landl.moizvonki.ru\\/calls\\/recordings\\/TQlAsGPFyNXQFeRlOBgcgSlSMNMloylQ.m4a\\/\",\"call_status\":4}",
+          "date_create": "2024-01-29 17:08:31",
+          "timestamp_x": "2024-01-29 17:08:31",
+          "created_by": "6363054",
+          "modified_by": "6363054",
+          "main_user_id": "6363054",
+          "account_id": "16393078",
+          "metadata": "{\"event_source\":{\"id\":6363054,\"author_name\":\"\\u041e\\u043b\\u044c\\u0433\\u0430 \\u041a\\u043b\\u0438\\u043d\\u043e\\u0432\\u0430\",\"type\":1}}",
+          "group_id": "176445",
+          "id": "304503582",
+          "created_at": "1706537311",
+          "updated_at": "1706537311"
+        }
+      }
+    ]
+  }
+}

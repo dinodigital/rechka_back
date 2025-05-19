@@ -1,0 +1,271 @@
+stages:
+  - setup_prod
+  - restart_prod
+ 
+variables:
+  REPO_URL: https://gitlab-ci-token:$CI_JOB_TOKEN@lab.dinodigital.ru/$CI_PROJECT_PATH
+  REPO_CAT: /opt/okk_ai_bot
+  REPO_CAT_LOG: /opt/okk_ai_bot/log
+  BACKUP_DIR: /opt/backup
+  FastAPI_Service_name: server_speechka
+  BOT_Service_name: speechka
+  Analytics_Service_name: jobs_speechka
+  Download_attempt_Service_name: download_attempt_speechka
+  Sipuni_Service_name: sipuni_speechka
+  FastAPI_file_log: server_err.log
+  BOT_file_log: err.log
+  Analytics_file_log: jobs_err.log
+  Download_attempt_file_log: download_attempt_err.log
+  Sipuni_file_log: sipuni_err.log
+  Beeline_Service_name: beeline-service
+  Beeline_Service_name_file_log: beeline-service_err.log
+
+prepare_prod_server:
+  stage: setup_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+    - when: never
+  before_script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        cd $REPO_CAT && 
+        git init && git config --global --add safe.directory $REPO_CAT &&
+        git config pull.rebase false
+      "
+  script:
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        cd $REPO_CAT &&
+        mkdir -p $BACKUP_DIR &&
+        mkdir -p /opt/okk_ai_bot_old &&
+        zip -r backup-$(date +'%Y-%m-%d_%H:%M').zip log/* && 
+        if [ ! -d .git ]; then
+          git clone $REPO_URL .; 
+          git checkout main;
+        else
+          git pull $REPO_URL dev --no-rebase;
+        fi
+      "
+    - rsync -avz "$PROD_ENV" "$PROD_CR" "$PROD_USER"@"$PROD_IP":/$REPO_CAT/config 
+    - ssh "$PROD_USER"@"$PROD_IP" "
+        cd $REPO_CAT/config &&
+        mv PROD_ENV .env &&
+        mv PROD_CR cr.json
+      "
+
+
+creating_virtual_environment:
+  stage: setup_prod
+  needs: ["prepare_prod_server"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  when: manual
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        apt install python3 libpq-dev gcc build-essential libssl-dev libffi-dev python3-dev ffmpeg -y &&
+        rm -rf /opt/.venv /opt/venv &&
+        cd /opt/ &&
+        virtualenv --python=python3.10 .venv &&
+        . /opt/.venv/bin/activate &&
+        cd $REPO_CAT &&
+        pip install pipenv &&
+        pip install -U setuptools &&
+        pipenv install
+        pipenv sync
+      "
+
+deploy_supervisor_configs:
+  stage: setup_prod
+  needs: ["creating_virtual_environment"]
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - templates/supervisord/*.conf
+      when: manual
+      allow_failure: true
+    - when: manual
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        cp $REPO_CAT/templates/supervisord/*.conf /etc/supervisor/conf.d/ &&
+        supervisorctl reread &&
+        supervisorctl update
+      "
+  
+restart_FastAPI_Service:
+  stage: restart_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        supervisorctl restart $FastAPI_Service_name &&
+        supervisorctl status $FastAPI_Service_name 
+      "
+
+restart_restart_BOT_Service:
+  stage: restart_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        supervisorctl restart $BOT_Service_name &&
+        supervisorctl status $BOT_Service_name 
+      "
+
+restart_Analytics_Service:
+  stage: restart_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        supervisorctl restart $Analytics_Service_name  &&
+        supervisorctl status $Analytics_Service_name
+      "
+
+restart_Download_attempt_Service:
+  stage: restart_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        supervisorctl restart $Download_attempt_Service_name &&
+        supervisorctl status $Download_attempt_Service_name 
+      "
+
+restart_Sipuni_Service:
+  stage: restart_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        supervisorctl restart $Sipuni_Service_name &&
+        supervisorctl status $Sipuni_Service_name
+      "
+
+restart_Beeline_president_Service:
+  stage: restart_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        supervisorctl restart $Beeline_president_Service_name &&
+        supervisorctl status $Beeline_president_Service_name 
+      "
+restart_Beeline_missier_pirsing_Service:
+    stage: restart_prod
+    tags:
+      - Rechka-Ai_prod
+    rules:
+      - if: $CI_COMMIT_BRANCH == "main"
+        when: manual
+        allow_failure: true
+      - when: never
+    script:
+      - eval $(ssh-agent -s)
+      - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+      - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+      - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+      - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+      - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+          supervisorctl restart $Beeline_missier_pirsing_Service_name &&
+          supervisorctl status $Beeline_missier_pirsing_Service_name 
+        "
+      
+restart_Beeline_bassein_service:
+  stage: restart_prod
+  tags:
+    - Rechka-Ai_prod
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
+    - when: never
+  script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
+        supervisorctl restart $Beeline_bassein_service_Service_name &&
+        supervisorctl status $Beeline_bassein_service_Service_name
+      "
+      

@@ -1,0 +1,21 @@
+bx24.callMethod('disk.file.get', id=611756)
+
+{'CODE': None,
+ 'CREATED_BY': '51008',
+ 'CREATE_TIME': '2023-12-14T11:44:40+03:00',
+ 'DELETED_BY': '0',
+ 'DELETED_TYPE': '0',
+ 'DELETE_TIME': None,
+ 'DETAIL_URL': 'https://dnk.bitrix24.ru/docs/file/Телефония - записи '
+               'звонков/2023-12/624cd50e-65f1-4d89-bbc3-2a086c05b612.mp3',
+ 'DOWNLOAD_URL': 'https://dnk.bitrix24.ru/rest/47810/mzjntvzv2bwlpyl0/download/?token=disk%7CaWQ9NjExNzU2Jl89bTQ0cUJwTkFaZzc0UFhPTEJ3Smc1THJZUmQxR0NlbXQ%3D%7CImRvd25sb2FkfGRpc2t8YVdROU5qRXhOelUySmw4OWJUUTBjVUp3VGtGYVp6YzBVRmhQVEVKM1NtYzFUSEpaVW1ReFIwTmxiWFE9fDQ3ODEwfG16am50dnp2MmJ3bHB5bDAi.GXSbwpElJYwPpLQk59iRTkpPjeANlRqUtLshjIebc5U%3D',
+ 'FILE_ID': '524702',
+ 'GLOBAL_CONTENT_VERSION': '1',
+ 'ID': '611756',
+ 'NAME': '624cd50e-65f1-4d89-bbc3-2a086c05b612.mp3',
+ 'PARENT_ID': '605440',
+ 'SIZE': '1009845',
+ 'STORAGE_ID': '11',
+ 'TYPE': 'file',
+ 'UPDATED_BY': '51008',
+ 'UPDATE_TIME': '2023-12-14T11:44:40+03:00'}
