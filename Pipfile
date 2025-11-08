@@ -26,16 +26,19 @@ apscheduler = "*"
 cryptography = "*"
 boto3 = "*"
 phonenumbers = "*"
-sentry-sdk = {extras = ["fastapi"], version = "*"}
 beeline-portal = {ref = "master", git = "git+https://github.com/dinodigital/beeline_portal.git"}
 psycopg2 = "*"
 kombu = "*"
 sipuni-api = "*"
 pyjwt = "*"
-passlib = {extras = ["bcrypt"], version = "*"}
 celery = {extras = ["redis"], version = "*"}
 flower = "*"
 gunicorn = "*"
+zoomus = "*"
+bcrypt = "*"
+python-magic = "*"
+pytest = "*"
+aiofiles = "*"
 
 [dev-packages]
 

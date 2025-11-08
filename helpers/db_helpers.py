@@ -8,9 +8,10 @@ from assemblyai import LemurTaskResponse, LemurQuestionResponse
 from loguru import logger
 
 from config import config as cfg
-from data.models import Mode, User, Task, Payment, main_db, Transaction
-from integrations.gs_api.sheets import create_google_sheet_link
+from data.models import Mode, User, Task, Payment, main_db, Report, RequestLog, ModeQuestion, ModeQuestionCalcType, \
+    DefaultQuestions, Integration, ActiveTelegramReport, ModeQuestionType, IntegrationServiceName, ModeAnswer, Company
 from modules.audiofile import Audiofile
+from modules.json_processor.struct_checkers import get_dict_from_json
 
 
 def generate_unique_mode_id(length: int = 12) -> str:
@@ -26,31 +27,18 @@ def generate_unique_mode_id(length: int = 12) -> str:
             return mode_id
 
 
-def create_db_task(db_user: User, assembly, audio: Audiofile) -> Task:
-    """
-    Создает сущность Task в базе данных
-    """
-    db_task: Task = Task.create(
-        user=db_user,
-        transcript_id=assembly.transcript.id,
-        duration_sec=audio.duration_in_sec,
-        analyze_id=assembly.lemur_response.request_id,
-        analyze_data=json.dumps(assembly.analyze_list),
-        file_url=audio.url
-    )
-
-    logger.info(f"Создал в БД новый Task, id:{db_task.id}")
-
-    return db_task
-
-
-def create_task(user: User, duration_sec: int, file_url: str, initial_duration: int = None) -> Task:
+def create_task(
+        duration_sec: int,
+        file_url: str,
+        report: Report,
+        initial_duration: int = None,
+) -> Task:
     """ Создает задачу анализа. """
+
     return Task.create(
-        user=user,
+        report=report,
         initial_duration=initial_duration,
         duration_sec=duration_sec,
-        calculated_duration=duration_sec,
         status=Task.StatusChoices.IN_PROGRESS,
         file_url=file_url,
         step="passed_filters"
@@ -64,7 +52,7 @@ def update_task_after_analysis(task: Task,
     task.assembly_duration = assembly.transcript.audio_duration
     task.transcript_id = assembly.transcript.id
     task.analyze_id = assembly.lemur_response.request_id
-    task.analyze_data = json.dumps(assembly.analyze_list)
+    task.analyze_data = json.dumps(assembly.analyze_dict)
     task.file_url = audio.url
     task.save()
     logger.debug(f"Задача {task.id} успешно обновлена после анализа {task.analyze_id}.")
@@ -96,12 +84,36 @@ def update_task_lemur_response(task: Task,
 
 
 def update_task_analyze_data(task: Task,
-                             analyze_data: str):
+                             analyze_data: dict,
+                             mode_questions):
     """ Обновляет задачу (analyze_data). """
-    task.analyze_data = analyze_data
+    task.analyze_data = json.dumps(analyze_data)
     task.step = "analyzed"
     task.save()
     logger.debug(f"Обновлены данные анализа для задачи {task.id}.")
+
+    logger.debug(f'Сохраняем ответы на вопросы от нейронной сети в базу данных. task_id={task.id}.')
+    for question_id, answer_text in analyze_data.items():
+        try:
+            question = mode_questions.where(ModeQuestion.id == question_id).get()
+        except peewee.DoesNotExist:
+            logger.error(f'Не удалось найти в базе данных вопрос ID={question_id}. '
+                         f'В ответе от нейронной сети он есть.')
+            continue
+        ModeAnswer.create(task=task, question=question, answer_text=answer_text)
+
+    logger.debug(f'Формируем и сохраняем в базу данных ответы на системные колонки. task_id={task.id}.')
+    custom_questions = task.report.get_custom_columns()
+    for question in custom_questions:
+        short_name = question.short_name
+        try:
+            func = DefaultQuestions.get_func(short_name)
+        except ValueError:
+            logger.error(f'Неизвестная вычисляемая колонка: {short_name}')
+            continue
+        answer_text = func(task)
+        ModeAnswer.create(task=task, question=question, answer_text=answer_text)
+    logger.info(f'Успешно сохранили ответы в БД. task_id={task.id}.')
 
 
 def update_task_after_transcript(task: Task,
@@ -132,20 +144,6 @@ def update_task_with_error(
     task.save()
 
 
-def update_task_with_google_error(task: Task, uploaded_data: list, mode: Mode = None, error=None):
-    """ Обновляет задачу при возникновении ошибки google. """
-    task.status = Task.StatusChoices.IN_PROGRESS
-    if error is not None:
-        try:
-            task.step = 'uploaded_error'
-            task.error_details = str(error)
-            task.uploaded_data = json.dumps(uploaded_data)
-            task.mode = mode
-        except Exception as e:
-            logger.error(f"Ошибка при обновлении task.error_details (google) {task.id}, <{type(e)}> {e}")
-    task.save()
-
-
 def finish_task(task: Task):
     """ Обновляет задачу при возникновении ошибки. """
     task.status = Task.StatusChoices.DONE
@@ -153,36 +151,19 @@ def finish_task(task: Task):
     logger.debug(f"finish_task. task: {task.id}, status: {task.status}")
 
 
-def not_enough_balance(user: User, audio_duration_in_sec: int) -> bool:
+def not_enough_company_balance(company: Company, audio_duration_in_sec: int) -> bool:
     """
     Проверка, хватит ли баланса для проведения анализа.
     """
-    current_balance = user.get_payer_balance()
-    return current_balance < audio_duration_in_sec
-    # current_balance = calculate_balance(user)
-    # return current_balance < (audio_duration_in_sec / 60)
+    current_balance = company.seconds_balance
 
-
-def calculate_balance(user: User) -> int:
-    """ Рассчитывает текущий баланс пользователя. """
-    total_minutes_added = (
-        Transaction
-        .select(peewee.fn.SUM(Transaction.minutes))
-        .where(
-            Transaction.user == user,
-            Transaction.payment_type == 'balance'
-        )
-        .scalar() or 0
-    )
-
-    total_minutes_used = (
-        Task
-        .select(peewee.fn.SUM(Task.assembly_duration))
-        .where(Task.user == user, Task.status == Task.StatusChoices.DONE)
-        .scalar() or 0
-    )
-
-    return total_minutes_added - total_minutes_used
+    if current_balance < audio_duration_in_sec:
+        logger.info(f"[-] Недостаточно баланса. "
+                    f"Текущий баланс: {current_balance} сек. Необходимо: {audio_duration_in_sec} сек. "
+                    f"company.id = {company.id}.")
+        return True
+    else:
+        return False
 
 
 def create_payment(db_user: User, invoice_sum: int, minutes_to_buy: int) -> Payment:
@@ -230,7 +211,6 @@ def create_mode_from_json(full_json: dict, sheet_id, mode_id=None) -> Mode:
         full_json=json.dumps(full_json),
         params=json.dumps(remove_short_names_from_params(full_json['params'])),
         sheet_id=sheet_id,
-        sheet_url=create_google_sheet_link(sheet_id),
         insert_row=full_json['row'],
         tg_link=tg_link
     )
@@ -255,3 +235,102 @@ def select_pg_stat_activity() -> None:
             logger.info(f"pg_stat_activity: {result[0]}")
     except Exception as e:
         logger.error(f"Ошибка соединения с БД при выполнении запроса SELECT pg_stat_activity: {e}")
+
+
+class DBLogHandler:
+
+    """
+    Пишет сообщение в базу данных, если передан ID RequestLog.
+    """
+
+    def write(self, message):
+
+        # Получаем объект, в который нужно сохранить сообщение.
+        request_log_id = message.record.get('extra', {}).get('request_log_id')
+        if request_log_id:
+            request_log = RequestLog.get_or_none(id=request_log_id)
+        else:
+            request_log = None
+
+        # Пишем в БД, если объект найден.
+        if request_log:
+            if request_log.log:
+                request_log.log += '\n'
+            request_log.log += message.record['message']
+            request_log.save(only=['log'])
+
+
+def create_default_telegram_report(
+        user: User,
+        sheet_id: Optional[str] = None,
+):
+    """
+    Создает Telegram-интеграцию и базовый отчет к ней.
+    """
+    with main_db.atomic():
+        # Создаем Telegram-интеграцию.
+        i_data = {'access': {'telegram_ids': user.tg_id}}
+        integration = Integration.create(
+            user=user,
+            company=user.company,
+            service_name=IntegrationServiceName.TELEGRAM,
+            account_id=f'telegram_{user.tg_id}',
+            data=json.dumps(i_data),
+        )
+        logger.debug(f'Создал интеграцию: {integration.id}')
+
+        # Создаем базовый отчет.
+        default_full_json = get_dict_from_json(cfg.DEFAULT_JSON_PATH)
+        report_context = default_full_json['params']['context']
+        questions = default_full_json['params']['questions']
+
+        report = Report.create(
+            active=True,
+            name='Базовый отчет',
+            integration=integration,
+            sheet_id=sheet_id,
+            final_model=cfg.TASK_MODELS_LIST[-1],
+            context=report_context,
+        )
+        logger.debug(f'Создал отчет: {report.id}')
+
+        # Устанавливаем активный отчет в Telegram-боте.
+        active_tg_report, created = ActiveTelegramReport.get_or_create(user=user, defaults={'report': report})
+        if not created:
+            active_tg_report.report = report
+            active_tg_report.save(only=['report'])
+        logger.debug(f'Выбрали в боте отчет {report.id}')
+
+        default_mq_kwargs = {
+            'is_active': True,
+            'report': report,
+        }
+        # Создаем системные вопросы.
+        column_index = 1
+        for q_params in DefaultQuestions.question_functions.values():
+            ModeQuestion.create(
+                short_name=q_params['title'],
+                calc_type=ModeQuestionCalcType.CUSTOM,
+                column_index=column_index,
+                question_text='',
+                answer_type=q_params.get('answer_type', ModeQuestionType.STRING),
+                **default_mq_kwargs,
+            )
+            column_index += 1
+        logger.info(f'Создали системные колонки для отчета.')
+
+        # Создаем AI колонки из базового json.
+        for q_params in questions:
+            ModeQuestion.create(
+                short_name=q_params['short_name'],
+                calc_type=ModeQuestionCalcType.AI,
+                column_index=column_index,
+                context=q_params['context'],
+                question_text=q_params['question'],
+                answer_type=q_params['answer_type'],
+                answer_format=q_params['answer_format'],
+                answer_options=q_params['answer_options'],
+                **default_mq_kwargs,
+            )
+            column_index += 1
+        logger.info(f'Создали json-колонки для отчета.')

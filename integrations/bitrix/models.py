@@ -5,31 +5,6 @@ from typing import List
 from integrations.const import CallTypeFilter
 
 
-class OwnerType(str, Enum):
-    """
-    Тип сущности в Activity
-    """
-    lead = '1'
-    contact = '2'
-    company = '3'
-    deal = '4'
-    invoice = '5'
-    quote = '6'
-
-
-class ActivityType(str, Enum):
-    """
-    Тип события в Activity
-    """
-    empty = '0'
-    meeting = '1'
-    call = '2'
-    task = '3'
-    email = '4'
-    action = '5'
-    user_action = '6'
-
-
 class CRMEntityType(str, Enum):
     """
     Возможные значения поля `CRM_ENTITY_TYPE` в структуре, возвращаемой Bitrix24 по API.

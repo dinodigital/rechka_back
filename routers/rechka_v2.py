@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, BackgroundTasks
 
-from data.models import Task, User
+from data.models import Task, User, RequestLog
 from data.server_models import CustomCallRequest, CustomTaskRequest, AuthRequest
 from helpers.logging_utils import log_with_context
 from integrations.process_custom_webhook import has_access, process_custom_webhook, create_task
@@ -22,7 +22,15 @@ async def create_task_webhook(call_request: CustomCallRequest,
         return {"status": 403, "message": "В доступе отказано"}
 
     db_task: Task = create_task(call_request)
-    background_tasks.add_task(log_with_context(process_custom_webhook), call_request, db_task, is_v2=True)
+    context_id = getattr(request.state, 'context_id', None)
+    request_log_id = getattr(request.state, 'request_log_id', None)
+
+    # Связываем запрос с задачей.
+    if request_log_id is not None:
+        db_task.request_log = RequestLog.get(id=request_log_id)
+        db_task.save(only=['request_log'])
+
+    background_tasks.add_task(log_with_context(process_custom_webhook, context_id=context_id), call_request, db_task, is_v2=True, request_log_id=request_log_id)
     return {"status": 200, "call_id": call_request.call_id, "task_id": db_task.id}
 
 
@@ -64,6 +72,6 @@ async def user_balance(user_request: AuthRequest,
     user = User.get(tg_id=user_request.telegram_id)
     response = {
         'status': 200,
-        'balance_in_seconds': user.seconds_balance,
+        'balance_in_seconds': user.get_seconds_balance(),
     }
     return response

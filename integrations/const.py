@@ -10,3 +10,4 @@ class CallTypeFilter(str, Enum):
     """
     INBOUND_VALUE = 'in'
     OUTBOUND_VALUE = 'out'
+    INTERNAL_VALUE = 'internal'

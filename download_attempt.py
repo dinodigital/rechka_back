@@ -19,7 +19,7 @@ def download_file_from_bitrix(call_id, webhook):
     try:
         call_info = bx24.get_call_info(call_id)
     except DataIsNotReadyError as exc:
-        logger.error(f'Перехват DataIsNotReadyError. Call ID: {call_id}. Exc: {exc}')
+        logger.warning(f'Перехват DataIsNotReadyError. Call ID: {call_id}. Exc: {exc}')
         call_info = None
     except IndexError as ie:
         logger.error(f'Перехват IndexError. Call ID: {call_id}. Exc: {ie}')
@@ -130,9 +130,17 @@ def update_downloads_amo():
             record.save()
             logger.info(f"Запись с Entity ID {record.entity_id} отклонена из-за истечения срока.")
             continue
-        call_info = download_file_from_amo(entity_id=record.entity_id,
-                                           entity_name=record.entity_name,
-                                           account_id=record.account_id)
+
+        try:
+            call_info = download_file_from_amo(entity_id=record.entity_id,
+                                               entity_name=record.entity_name,
+                                               account_id=record.account_id)
+        except json.JSONDecodeError:
+            record.status = "failed"
+            record.save()
+            logger.info(f"Ошибка при обработке записи с Entity ID {record.entity_id}: не удалось подключить к CRM.")
+            continue
+
 
         logger.debug(f"Результаты download_file_from_amo return: {call_info}")
 

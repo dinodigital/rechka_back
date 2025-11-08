@@ -1,3 +1,5 @@
+from json import JSONDecodeError
+
 from pyrogram.types import Message
 
 from config.const import JsonType
@@ -12,7 +14,11 @@ def process_json(message: Message) -> None:
     file_path = message.download()
 
     # Парсим json файл в словарь
-    full_json = get_dict_from_json(file_path)
+    try:
+        full_json = get_dict_from_json(file_path)
+    except JSONDecodeError:
+        message.reply('Не удалось открыть файл. Проверьте структуру JSON.')
+        return None
 
     json_type = full_json.get("type", "")
 
@@ -22,3 +28,5 @@ def process_json(message: Message) -> None:
         create_integration_with_json(message, full_json)
     elif json_type == JsonType.create_report:
         create_report_with_json(message, full_json)
+
+    return None

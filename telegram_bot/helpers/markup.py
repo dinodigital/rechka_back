@@ -2,7 +2,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from config.const import CBData
 import config.config as cfg
-from data.models import User, Mode
+from data.models import User, Report, Integration, IntegrationServiceName, ActiveTelegramReport
 
 
 def with_close_btn():
@@ -86,23 +86,28 @@ def robokassa_pay_button(payment_link, invoice_sum):
     return easy_inline_markup([[(f"Оплатить {invoice_sum} ₽", f"{payment_link}", "url")]])
 
 
-def modes_markup(db_user: User):
+def reports_markup(db_user: User):
     """
-    Кнопки режимов
+    Кнопки отчетов
     """
-    def generate_button(db_mode: Mode):
-        if db_user.mode_id == db_mode.mode_id:
-            btn_name = f"🟢 {db_mode.name}"
+    # Telegram-интеграции компании.
+    integrations = Integration.select().where(Integration.company == db_user.company,
+                                              Integration.service_name == IntegrationServiceName.TELEGRAM)
+    # Активные отчеты Telegram-интеграций компании.
+    reports = Report.select().where(Report.integration.in_(integrations),
+                                    Report.active == True)
+    # Активный Telegram-отчет пользователя.
+    active_tg_report = ActiveTelegramReport.get_or_none(user=db_user)
+
+    buttons = []
+    for report in reports:
+        if active_tg_report and active_tg_report.report == report:
+            btn_name = f"🟢 {report.name}"
             cb_data = "none"
         else:
-            btn_name = db_mode.name
-            cb_data = f"{CBData.change_mode}_{db_mode.mode_id}"
-        return [(btn_name, cb_data)]
-
-    modes = db_user.get_all_modes()
-    buttons = []
-    for mode in modes:
-        buttons.append(generate_button(mode))
+            btn_name = report.name
+            cb_data = f"{CBData.change_report}_{report.id}"
+        buttons.append([(btn_name, cb_data)])
 
     return easy_inline_markup(buttons)
 

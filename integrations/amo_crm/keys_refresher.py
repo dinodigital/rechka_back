@@ -1,3 +1,5 @@
+import json
+
 from loguru import logger
 
 from data.models import Integration, IntegrationServiceName
@@ -22,7 +24,11 @@ def refresh_amocrm_keys():
     logger.info(f"Запускаю обновление токенов для {len(integrations)} интеграций")
 
     for integration in integrations:
-        response = AmoApiAuth(integration, with_handle_auth=False).handle_auth()
+
+        try:
+            response = AmoApiAuth(integration, with_handle_auth=False).handle_auth()
+        except json.JSONDecodeError:
+            response = 'Не удалось подключиться к CRM.'
 
         if response == "ok":
             logger.info(f"Обновил AmoCRM токен для интеграции id: {integration.id}")

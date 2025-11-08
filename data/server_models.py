@@ -112,9 +112,12 @@ class AuthRequest(AuthRequestMixin):
 class CustomCallRequest(AuthRequestMixin):
     call_url: str
     call_id: Optional[str] = None
+    report_id: Optional[int] = None
     callback_url: Optional[str] = None
     fields_to_export: Optional[List[Dict[str, Any]]] = None
     advance_transcript: Optional[bool] = False
+    lead_id: Optional[str] = None
+    consider_previous_call: Optional[bool] = False
 
 
 class CustomTaskRequest(AuthRequestMixin):

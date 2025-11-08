@@ -8,9 +8,11 @@ from loguru import logger
 from pyrogram.types import Message
 
 from config.config import FERNET_KEY
-from data.models import Integration, User, IntegrationServiceName
+from data.models import Integration, User, IntegrationServiceName, Company
 from integrations.amo_crm.amo_api_core import AmoApiAuth
 from integrations.bitrix.bitrix_api import Bitrix24
+from integrations.mango.process import MangoClient
+from integrations.sipuni.api import SipuniClient
 from modules.crypter import encrypt
 from modules.exceptions import IntegrationConnectError, ObjectNotFoundError, IntegrationExistsError
 from modules.json_processor.struct_checkers import is_create_integration_json
@@ -159,7 +161,7 @@ def create_or_update_beeline_integration(
     except Exception as ex:
         logger.error(f'Ошибка интеграции с Beeline. {ex}')
         if message:
-            message.reply(f'⚠️ <b>Ошибка интеграции</b>\n{ex}', disable_web_page_preview=True)
+            message.reply(f'⚠️ <b>Ошибка интеграции</b>\n{ex}')
         return None
 
     # Подготавливаем данные для поля `data`, шифруем необходимые поля.
@@ -222,12 +224,70 @@ def create_or_update_integration(message: Message, full_json: dict) -> Integrati
     return integration
 
 
+def create_or_update_mango_integration(
+        full_json: dict,
+        message: Optional[Message] = None,
+) -> Optional[Integration]:
+    """
+    Создание интеграции с Mango (или обновление существующей).
+    """
+    telegram_id = full_json['telegram_id']
+    account_id = full_json['account_id']
+
+    user = User.get_or_none(tg_id=telegram_id)
+    if user is None:
+        logger.error(f'Пользователь с tg_id {telegram_id} не найден в БД.')
+        if message:
+            message.reply(f'Пользователь с tg_id {telegram_id} не найден в БД.')
+        return None
+
+    # Проверка интеграции
+    api_key = full_json['data']['access']['api_key']
+    api_salt = full_json['data']['access']['api_salt']
+    client = MangoClient(api_key, api_salt)
+    try:
+        client.get_balance()
+    except Exception as ex:
+        logger.error(f'Ошибка интеграции с Mango. {ex}')
+        if message:
+            message.reply(f'⚠️ <b>Ошибка интеграции</b>\n{ex}')
+        return None
+
+    # Подготавливаем данные для поля `data`, шифруем необходимые поля.
+    new_data = deepcopy(full_json['data'])
+    new_data['access']['api_key'] = encrypt(new_data['access']['api_key'], FERNET_KEY)
+    new_data['access']['api_salt'] = encrypt(new_data['access']['api_salt'], FERNET_KEY)
+
+    integration, created = Integration.get_or_create(
+        account_id=account_id,
+        service_name=IntegrationServiceName.MANGO,
+        defaults={
+            'user': user,
+            'data': json.dumps(new_data),
+        }
+    )
+    if created:
+        log_txt = f'Создал интеграцию с Mango. tg_id: {telegram_id}, integration_id: {integration.id}'
+    else:
+        integration.user = user
+        integration.data = json.dumps(new_data)
+        integration.save()
+        log_txt = f'Обновил интеграцию с Mango. tg_id: {telegram_id}, integration_id: {integration.id}'
+
+    logger.info(log_txt)
+    if message:
+        message.reply(log_txt)
+
+    return integration
+
+
 def create_integration_with_json(message: Message, full_json: dict):
     """
     Создание интеграции
     """
     if not is_create_integration_json(full_json):
-        return message.reply("Некорректный json файл")
+        message.reply("Некорректный json файл")
+        return None
 
     service_name = full_json.get("service_name", "")
 
@@ -239,8 +299,13 @@ def create_integration_with_json(message: Message, full_json: dict):
         create_or_update_beeline_integration(full_json, message)
     elif service_name == IntegrationServiceName.SIPUNI:
         create_or_update_integration(message, full_json)
-    elif service_name == "custom":
+    elif service_name == IntegrationServiceName.MANGO:
+        create_or_update_mango_integration(full_json, message)
+    elif service_name == IntegrationServiceName.CUSTOM:
         create_or_update_integration(message, full_json)
+    else:
+        message.reply("Некорректный тип внешней системы")
+    return None
 
 
 class IntegrationConstructor:
@@ -254,45 +319,100 @@ class IntegrationConstructor:
     – Custom.
     """
 
+    sensitive_fields = {
+        IntegrationServiceName.BITRIX24: ['webhook_url'],
+        IntegrationServiceName.BEELINE: ['token'],
+        IntegrationServiceName.SIPUNI: ['application_token'],
+    }
+
     def __init__(
             self,
-            telegram_id: int,
-            account_id: str,
-            i_data: dict,
-            service_name: IntegrationServiceName,
+            new_telegram_id: int,
+            new_account_id: str,
+            new_data: dict,
+            new_service_name: IntegrationServiceName,
+            new_company_id: Optional[int] = None,
     ) -> None:
-        self.telegram_id = telegram_id
-        self.account_id = account_id
-        self.data = i_data
-        self.service_name = service_name
+        self.new_telegram_id = new_telegram_id
+        self.new_account_id = new_account_id
+        self.new_data = deepcopy(new_data)
+        self.new_service_name = new_service_name
+        self.new_company_id = new_company_id
+
+    def _update_with_encrypted_fields(
+            self,
+            integration: Integration,
+    ) -> None:
+        """
+        Шифрует чувствительные открытые данные.
+        Обновляет self.new_data, используемый как источник новых данных .data интеграции.
+        """
+        if integration.data:
+            if integration.service_name == IntegrationServiceName.AMOCRM:
+                current_data = integration.get_data()
+
+                if not self.new_data.get('access'):
+                    if 'access' in current_data:
+                        # Если access не передали, копируем полностью из текущей data.
+                        self.new_data['access'] = deepcopy(current_data['access'])
+                else:
+                    # Если access передали, но не передали access_token и/или refresh_token,
+                    # то берем их из существующей data.
+                    if 'access_token' not in self.new_data['access']:
+                        self.new_data['access']['access_token'] = current_data['access'].get('access_token')
+                    if 'refresh_token' not in self.new_data['access']:
+                        self.new_data['access']['refresh_token'] = current_data['access'].get('refresh_token')
+
+        for field_name in self.sensitive_fields.get(integration.service_name, []):
+            self.new_data['access'][field_name] = encrypt(self.new_data['access'][field_name], FERNET_KEY)
 
     def _check_connection(
             self,
             integration: Integration,
-    ) -> bool:
+    ) -> None:
         """
         Проверка подключения к CRM/телефонии.
+        Для AmoCRM обновляет токены через code (сохраняет их в self.new_data).
         """
-        if self.service_name == IntegrationServiceName.AMOCRM:
-            response = AmoApiAuth(integration, with_handle_auth=False).handle_auth()
-            if response != 'ok':
-                raise IntegrationConnectError(f'Не удалось подключиться к AmoCRM. {response}')
 
-        elif self.service_name == IntegrationServiceName.BITRIX24:
+        if integration.service_name == IntegrationServiceName.AMOCRM:
+            # Если был передан code, то обновляем токены.
+            if self.new_data.get('access', {}).get('code'):
+
+                # Принудительно удаляем токены, даже если они не устарели.
+                # Чтобы получить и сохранить новые.
+                self.new_data['access'].pop('access_token', None)
+                self.new_data['access'].pop('refresh_token', None)
+
+                integration.data = json.dumps(self.new_data)
+                amo_api = AmoApiAuth(integration, with_handle_auth=False, commit_on_update=False)
+                response = amo_api.handle_auth()
+                if response != 'ok':
+                    raise IntegrationConnectError(f'Не удалось подключиться к AmoCRM. {response}')
+                self.new_data = amo_api.data
+                self.new_data['access']['code'] = None
+
+        elif integration.service_name == IntegrationServiceName.BITRIX24:
             webhook_url = integration.get_decrypted_access_field('webhook_url')
             response = Bitrix24(webhook_url).check_integration()
             if response != 'ok':
                 raise IntegrationConnectError(f'Не удалось подключиться к Bitrix24. {response}')
 
-        elif self.service_name == IntegrationServiceName.BEELINE:
-            access_token = integration.get_decrypted_access_field('token')
-            client = BeelinePBX(access_token)
+        elif integration.service_name == IntegrationServiceName.BEELINE:
+            token = integration.get_decrypted_access_field('token')
+            client = BeelinePBX(token)
             try:
                 client.get_abonents()
             except BeelinePBXException as ex:
                 raise IntegrationConnectError(f'Не удалось подключиться к Beeline. {type(ex)}')
 
-        return True
+        elif integration.service_name == IntegrationServiceName.SIPUNI:
+            token = integration.get_decrypted_access_field('application_token')
+            client = SipuniClient(integration.account_id, token)
+            try:
+                client.get_managers()
+            except Exception as ex:
+                raise IntegrationConnectError(f'Не удалось подключиться к SipUni. {type(ex)}')
 
     def create(
             self,
@@ -303,67 +423,57 @@ class IntegrationConstructor:
         Возвращает ID созданной интеграции.
         """
         integration = Integration.get_or_none(
-            (Integration.account_id == self.account_id)
-            & (Integration.service_name == self.service_name)
+            (Integration.account_id == self.new_account_id)
+            & (Integration.service_name == self.new_service_name)
         )
         if integration is not None:
-            raise IntegrationExistsError(f'Интеграция "{self.service_name.value}" с account_id={self.account_id} уже существует.')
+            raise IntegrationExistsError(f'Интеграция "{self.new_service_name.value}" '
+                                         f'с account_id={self.new_account_id} уже существует.')
 
-        new_user = User.get_or_none(tg_id=self.telegram_id)
-        if new_user is None:
-            raise ObjectNotFoundError(f'Не удалось найти пользователя с tg_id={self.telegram_id}.')
-
-        # Формируем новое значение поля data.
-        new_data = deepcopy(self.data)
-        if self.service_name == IntegrationServiceName.AMOCRM:
-            new_data['access']['access_token'] = encrypt(new_data['access']['access_token'], FERNET_KEY)
-            new_data['access']['refresh_token'] = encrypt(new_data['access']['refresh_token'], FERNET_KEY)
-        elif self.service_name == IntegrationServiceName.BITRIX24:
-            new_data['access']['webhook_url'] = encrypt(new_data['access']['webhook_url'], FERNET_KEY)
-        elif self.service_name == IntegrationServiceName.BEELINE:
-            new_data['access']['token'] = encrypt(new_data['access']['token'], FERNET_KEY)
-
-        # Создаем интеграцию, но сохраняем в базу только после проверки связи с CRM/телефонией.
+        # Создаем интеграцию без сохранения в БД.
+        if self.new_company_id is not None:
+            company = Company.get(id=self.new_company_id)
+        else:
+            company = None
         integration = Integration(
-            user=new_user,
-            service_name=self.service_name,
-            account_id=self.account_id,
-            data=json.dumps(new_data),
+            company=company,
+            service_name=self.new_service_name,
+            account_id=self.new_account_id,
         )
-        self._check_connection(integration)
-        integration.save()
+        self.update(integration)
 
         return integration
 
     def update(
             self,
-            integration: Optional[Integration] = None,
+            integration: Integration,
     ) -> Integration:
         """
-        Обновляет интеграцию.
+        Обновляет переданную интеграцию.
+        Шифрует необходимые поля в зависимости от типа интеграции.
         Возвращает ID обновлённой интеграции.
         """
-        if integration is None:
-            integration = Integration.get_or_none(
-                (Integration.account_id == self.account_id)
-                & (Integration.service_name == self.service_name)
-            )
-            if integration is None:
-                raise ObjectNotFoundError(f'Интеграция "{self.service_name.value}" с account_id={self.account_id} не найдена.')
+        if integration.account_id != self.new_account_id:
+            integration.account_id = self.new_account_id
 
-        if integration.account_id != self.account_id:
-            integration.account_id = self.account_id
-
-        if integration.user is None or integration.user.tg_id != self.telegram_id:
-            new_user = User.get_or_none(tg_id=self.telegram_id)
+        if (self.new_telegram_id is not None
+                and (integration.user is None or integration.user.tg_id != self.new_telegram_id)):
+            new_user = User.get_or_none(tg_id=self.new_telegram_id)
             if new_user is None:
-                raise ObjectNotFoundError(f'Не удалось найти пользователя с tg_id={self.telegram_id}.')
+                raise ObjectNotFoundError(f'Не удалось найти пользователя с tg_id={self.new_telegram_id}.')
             integration.user = new_user
 
-        integration.data = json.dumps(self.data)
+        if self.new_company_id is not None:
+            if (not integration.company) or (integration.company.id != self.new_company_id):
+                company = Company.get(id=self.new_company_id)
+                integration.company = company
 
-        # Если удалось подключиться с новыми данными, сохраняем изменения в БД.
+        self._update_with_encrypted_fields(integration)
+        integration.data = json.dumps(self.new_data)
+
         self._check_connection(integration)
+        integration.data = json.dumps(self.new_data)
+
         integration.save()
 
         return integration

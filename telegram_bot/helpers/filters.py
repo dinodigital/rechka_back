@@ -7,7 +7,12 @@ def admin_filter(_, __, message):
 
 
 def audio_video_filter(_, __, message):
-    return message.audio or message.video or (message.document and ('audio' in message.document.mime_type or 'video' in message.document.mime_type))
+    return (
+            message.audio or
+            message.video or
+            message.voice or
+            (message.document and ('audio' in message.document.mime_type or 'video' in message.document.mime_type))
+    )
 
 
 def json_filter(_, __, message):

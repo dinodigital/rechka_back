@@ -24,6 +24,15 @@ POSTGRES_PASSWORD = os.environ['POSTGRES_PASSWORD']
 POSTGRES_SSL_MODE = os.environ['POSTGRES_SSL_MODE']
 
 
+# Тестовая база данных (pytest)
+PYTEST_TEMP_POSTGRES_DB = os.environ['PYTEST_TEMP_POSTGRES_DB']
+PYTEST_TEMP_POSTGRES_HOST = os.environ['PYTEST_TEMP_POSTGRES_HOST']
+PYTEST_TEMP_POSTGRES_PORT = os.environ['PYTEST_TEMP_POSTGRES_PORT']
+PYTEST_TEMP_POSTGRES_USER = os.environ['PYTEST_TEMP_POSTGRES_USER']
+PYTEST_TEMP_POSTGRES_PASSWORD = os.environ['PYTEST_TEMP_POSTGRES_PASSWORD']
+PYTEST_TEMP_POSTGRES_SSL_MODE = os.environ['PYTEST_TEMP_POSTGRES_SSL_MODE']
+
+
 REDIS_URL = os.environ.get("CELERY_BROKER")
 
 # Безопасность
@@ -32,7 +41,7 @@ FERNET_KEY = os.environ.get('FERNET_KEY')
 # Аутентификация, пароли
 SECRET_KEY = os.environ['SECRET_KEY']
 CRYPTO_ALGORITHM = os.environ.get('CRYPTO_ALGORITHM', 'HS256')
-ACCESS_TOKEN_EXPIRE_MINUTES = os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', 30)
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get('ACCESS_TOKEN_EXPIRE_MINUTES', '30'))
 
 
 # Google sheet
@@ -52,8 +61,7 @@ MAX_TRANSCRIPTS_TO_SEND = os.environ.get('MAX_TRANSCRIPTS_TO_SEND', 100)
 
 # Нейросети
 ASSEMBLYAI_KEY = os.environ.get('ASSEMBLYAI_KEY')
-QUESTION_MODELS_LIST = ['default', 'basic']
-TASK_MODELS_LIST = ["anthropic/claude-3-5-sonnet", "anthropic/claude-3-haiku"]
+TASK_MODELS_LIST = ["anthropic/claude-3-5-sonnet", "anthropic/claude-3-haiku", "anthropic/claude-sonnet-4-20250514"]
 
 # Robokassa
 ROBOKASSA_MERCHANT_LOGIN = os.environ.get('ROBOKASSA_MERCHANT_LOGIN')
@@ -69,6 +77,9 @@ BITRIX24_NEW_TG_USER_STAGE_ID = os.environ.get('BITRIX24_NEW_TG_USER_STAGE_ID')
 BITRIX24_NEW_TG_USER_SOURCE_ID = os.environ.get('BITRIX24_NEW_TG_USER_SOURCE_ID')
 BITRIX24_CONTACT_REFERRER_FIELD_NAME = os.environ.get('BITRIX24_CONTACT_REFERRER_FIELD_NAME')
 BITRIX24_CONTACT_TG_ID_FIELD_NAME = os.environ['BITRIX24_CONTACT_TG_ID_FIELD_NAME']
+# ID воронки «ЛИДЫ».
+BITRIX24_LEAD_PIPELINE_ID = '-1'
+
 
 # Общие настройки
 BOT_APP_NAME = 'My bot'
@@ -80,17 +91,20 @@ TIME_ZONE = 'Europe/Moscow'
 # Сохранять транскрипт текстом в Google Sheets.
 SAVE_TRANSCRIPT_AS_TEXT: bool = os.environ.get('SAVE_TRANSCRIPT_AS_TEXT', 'False').lower() in ('true', '1', 't')
 
+# Максимальное количество попыток выгрузить строки в Гугл.
+UPLOAD_GOOGLE_MAX_ATTEMPTS = os.environ.get('UPLOAD_GOOGLE_MAX_ATTEMPTS', 10)
+# Максимальное количество воркеров, выгружающих строки в Гугл.
+UPLOAD_GOOGLE_MAX_WORKERS = os.environ.get('UPLOAD_GOOGLE_MAX_WORKERS', 20)
+# Максимальное количество строк, выгружаемых за раз в Гугл.
+UPLOAD_GOOGLE_CHUNK_SIZE = os.environ.get('UPLOAD_GOOGLE_CHUNK_SIZE', 2000)
+
+
 # Стартовые настройки продукта
 FREE_MINUTES = 30
-FREE_SECONDS = FREE_MINUTES * 60
 
 # ЦЕНЫ
 PRICE_PER_MINUTE_IN_RUB = 6
 PRICE_PER_MINUTE_IN_USD = 6/100
-
-# Sentry
-BOT_SENTRY_DSN = os.environ.get('BOT_SENTRY_DSN')
-API_SENTRY_DSN = os.environ.get('API_SENTRY_DSN')
 
 ENV = os.environ.get('ENV', 'local').lower().strip()
 PRODUCTION = (ENV == 'production')
@@ -105,3 +119,12 @@ FASTAPI_HTTPS_ONLY: bool = os.environ.get('FASTAPI_HTTPS_ONLY', 'False').lower()
 FASTAPI_CORS_ORIGINS: list = [
     x.strip() for x in os.environ.get('FASTAPI_CORS_ORIGINS', '').split(',') if x.strip()
 ]
+FASTAPI_TEST_ENV_PORT = os.environ.get('FASTAPI_TEST_ENV_PORT', 80)
+
+# Каталог со статическими файлами fastapi-приложения, которые будут доступны извне.
+FASTAPI_STATIC_DIR = os.path.join(ROOT_DIR, 'static')
+os.makedirs(FASTAPI_STATIC_DIR, exist_ok=True)
+
+# Каталог, куда пользователь загружает файлы, которые затем будут доступны извне.
+FASTAPI_STATIC_UPLOAD_DIR = os.path.join(FASTAPI_STATIC_DIR, 'upload')
+os.makedirs(FASTAPI_STATIC_UPLOAD_DIR, exist_ok=True)

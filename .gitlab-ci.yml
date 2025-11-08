@@ -1,271 +1,686 @@
 stages:
-  - setup_prod
-  - restart_prod
- 
-variables:
-  REPO_URL: https://gitlab-ci-token:$CI_JOB_TOKEN@lab.dinodigital.ru/$CI_PROJECT_PATH
-  REPO_CAT: /opt/okk_ai_bot
-  REPO_CAT_LOG: /opt/okk_ai_bot/log
-  BACKUP_DIR: /opt/backup
-  FastAPI_Service_name: server_speechka
-  BOT_Service_name: speechka
-  Analytics_Service_name: jobs_speechka
-  Download_attempt_Service_name: download_attempt_speechka
-  Sipuni_Service_name: sipuni_speechka
-  FastAPI_file_log: server_err.log
-  BOT_file_log: err.log
-  Analytics_file_log: jobs_err.log
-  Download_attempt_file_log: download_attempt_err.log
-  Sipuni_file_log: sipuni_err.log
-  Beeline_Service_name: beeline-service
-  Beeline_Service_name_file_log: beeline-service_err.log
+  - delivery_and_switch
+  - test
+  - rollback
+  - cleanup
 
-prepare_prod_server:
-  stage: setup_prod
-  tags:
-    - Rechka-Ai_prod
+variables:
+  RELEASES_DIR: /opt/okk_ai_bot/releases
+  CURRENT_LINK: /opt/okk_ai_bot/current
+  PREVIOUS_LINK: /opt/okk_ai_bot/previous
+  LOG_LINK: /opt/okk_ai_bot/log
+  GIT: git@lab.dinodigital.ru:development/okk_ai_bot.git
+  VENV_PATH: /opt/venv/.venv
+  SERVER_SERVICE: speechka
+  BOT_SERVICE: speechka-bot
+  KEEP_RELEASES: 5
+
+# Доставка и сборка новой версии для dev
+delivery_dev:
+  stage: delivery_and_switch
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: '$CI_COMMIT_BRANCH == "dev"'
       when: manual
-    - when: never
   before_script:
     - eval $(ssh-agent -s)
     - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
     - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
     - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        cd $REPO_CAT && 
-        git init && git config --global --add safe.directory $REPO_CAT &&
-        git config pull.rebase false
-      "
   script:
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        cd $REPO_CAT &&
-        mkdir -p $BACKUP_DIR &&
-        mkdir -p /opt/okk_ai_bot_old &&
-        zip -r backup-$(date +'%Y-%m-%d_%H:%M').zip log/* && 
-        if [ ! -d .git ]; then
-          git clone $REPO_URL .; 
-          git checkout main;
+    - |
+      ssh "$TEST_USER"@"$TEST_IP" '
+        set -e &&
+        TIMESTAMP=$(date +"%Y%m%d_%H%M%S") &&
+        RELEASE_DIR='"$RELEASES_DIR"'/$TIMESTAMP &&
+        
+        echo "Создание директории релиза: $RELEASE_DIR" &&
+        mkdir -p '"$RELEASES_DIR"' &&
+        
+        echo "Клонирование репозитория..." &&
+        git clone -b '"$CI_COMMIT_BRANCH"' '"$GIT"' $RELEASE_DIR &&
+        
+        cd $RELEASE_DIR &&
+        echo "Установка зависимостей..." &&
+        . '"$VENV_PATH"'/bin/activate &&
+        pip install pipenv gunicorn &&
+        pipenv install &&
+        pipenv sync &&
+        
+        echo "Создание директорий для конфигов и логов..." &&
+        mkdir -p $RELEASE_DIR/config &&
+        mkdir -p $RELEASE_DIR/log &&
+        
+        echo "Релиз $TIMESTAMP успешно подготовлен" &&
+        echo "Путь к релизу: $RELEASE_DIR"
+      '
+    - LATEST=$(ssh "$TEST_USER"@"$TEST_IP" "ls $RELEASES_DIR | sort -r | head -1")
+    - echo "Копирование конфигурационных файлов в релиз $LATEST..."
+    - rsync -avz "$TEST_ENV" "$TEST_USER"@"$TEST_IP":"$RELEASES_DIR"/$LATEST/config/.env
+    - rsync -avz "$TEST_CR" "$TEST_USER"@"$TEST_IP":"$RELEASES_DIR"/$LATEST/config/cr.json
+    - |
+      ssh "$TEST_USER"@"$TEST_IP" '
+        LATEST_RELEASE=$(ls '"$RELEASES_DIR"' | sort -r | head -1) &&
+        echo "Исправление прав доступа..." &&
+        chown root:root '"$RELEASES_DIR"'/$LATEST_RELEASE/config/.env &&
+        chown root:root '"$RELEASES_DIR"'/$LATEST_RELEASE/config/cr.json &&
+        chmod 600 '"$RELEASES_DIR"'/$LATEST_RELEASE/config/.env &&
+        chmod 600 '"$RELEASES_DIR"'/$LATEST_RELEASE/config/cr.json &&
+        echo "Проверка конфигурационных файлов:" &&
+        ls -lh '"$RELEASES_DIR"'/$LATEST_RELEASE/config/ &&
+        echo "✓ Конфигурационные файлы загружены" &&
+        echo "Для активации запустите джобу: switch_dev"
+      '
+
+# Доставка и сборка новой версии для prod
+delivery_prod:
+  stage: delivery_and_switch
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  before_script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+  script:
+    - |
+      ssh "$SSH_USER"@"$PROD_IP" '
+        set -e &&
+        TIMESTAMP=$(date +"%Y%m%d_%H%M%S") &&
+        RELEASE_DIR='"$RELEASES_DIR"'/$TIMESTAMP &&
+        
+        echo "Создание директории релиза: $RELEASE_DIR" &&
+        mkdir -p '"$RELEASES_DIR"' &&
+        
+        echo "Клонирование репозитория..." &&
+        git clone -b '"$CI_COMMIT_BRANCH"' '"$GIT"' $RELEASE_DIR &&
+        
+        cd $RELEASE_DIR &&
+        echo "Установка зависимостей..." &&
+        . '"$VENV_PATH"'/bin/activate &&
+        pip install pipenv gunicorn &&
+        pipenv install &&
+        pipenv sync &&
+        
+        echo "Создание директорий для конфигов и логов..." &&
+        mkdir -p $RELEASE_DIR/config &&
+        mkdir -p $RELEASE_DIR/log &&
+        
+        echo "Запуск тестов в новом релизе..." &&
+        pipenv run python -m pytest -s tests &&
+        echo "✓ Тесты пройдены успешно" &&
+        
+        echo "Релиз $TIMESTAMP успешно подготовлен" &&
+        echo "Путь к релизу: $RELEASE_DIR"
+      '
+    - LATEST=$(ssh "$SSH_USER"@"$PROD_IP" "ls $RELEASES_DIR | sort -r | head -1")
+    - echo "Копирование конфигурационных файлов в релиз $LATEST..."
+    - rsync -avz "$PROD_ENV" "$SSH_USER"@"$PROD_IP":"$RELEASES_DIR"/$LATEST/config/.env
+    - rsync -avz "$PROD_CR" "$SSH_USER"@"$PROD_IP":"$RELEASES_DIR"/$LATEST/config/cr.json
+    - |
+      ssh "$SSH_USER"@"$PROD_IP" '
+        LATEST_RELEASE=$(ls '"$RELEASES_DIR"' | sort -r | head -1) &&
+        echo "Исправление прав доступа..." &&
+        chown root:root '"$RELEASES_DIR"'/$LATEST_RELEASE/config/.env &&
+        chown root:root '"$RELEASES_DIR"'/$LATEST_RELEASE/config/cr.json &&
+        chmod 600 '"$RELEASES_DIR"'/$LATEST_RELEASE/config/.env &&
+        chmod 600 '"$RELEASES_DIR"'/$LATEST_RELEASE/config/cr.json &&
+        echo "Проверка конфигурационных файлов:" &&
+        ls -lh '"$RELEASES_DIR"'/$LATEST_RELEASE/config/ &&
+        echo "✓ Конфигурационные файлы загружены" &&
+        echo "Для активации запустите джобу: switch_prod"
+      '
+
+# Переключение на новую версию для dev
+switch_dev:
+  stage: delivery_and_switch
+  needs: ["delivery_dev"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+      when: manual
+  before_script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+  script:
+    - |
+      ssh "$TEST_USER"@"$TEST_IP" '
+        set -e &&
+        
+        LATEST_RELEASE=$(ls '"$RELEASES_DIR"' | sort -r | head -1) &&
+        
+        if [ -z "$LATEST_RELEASE" ]; then
+          echo "Ошибка: Релизы не найдены в '"$RELEASES_DIR"'" &&
+          exit 1
+        fi &&
+        
+        NEW_RELEASE_PATH='"$RELEASES_DIR"'/$LATEST_RELEASE &&
+        
+        echo "=== Переключение на релиз: $LATEST_RELEASE ===" &&
+        
+        if [ -L '"$CURRENT_LINK"' ]; then
+          CURRENT_TARGET=$(readlink -f '"$CURRENT_LINK"') &&
+          rm -f '"$PREVIOUS_LINK"' &&
+          ln -s $CURRENT_TARGET '"$PREVIOUS_LINK"' &&
+          echo "✓ Предыдущая версия сохранена: $CURRENT_TARGET"
+        fi &&
+        
+        rm -f '"$CURRENT_LINK"' &&
+        ln -s $NEW_RELEASE_PATH '"$CURRENT_LINK"' &&
+        echo "✓ Симлинк обновлен: '"$CURRENT_LINK"' -> $NEW_RELEASE_PATH" &&
+        
+        rm -f '"$LOG_LINK"' &&
+        ln -s '"$CURRENT_LINK"'/log '"$LOG_LINK"' &&
+        echo "✓ Логи доступны: '"$LOG_LINK"'" &&
+        
+        echo "" &&
+        echo "=== Health check перед reload ===" &&
+        curl -f http://localhost:8080/status || echo "⚠ Warning: health check failed" &&
+        
+        echo "" &&
+        echo "=== Graceful reload FastAPI сервера (zero downtime) ===" &&
+        systemctl reload '"$SERVER_SERVICE"'.service &&
+        echo "Ожидание запуска сервера..." &&
+        sleep 5 &&
+        
+        echo "=== Graceful reload Telegram бота (zero downtime) ===" &&
+        systemctl reload '"$BOT_SERVICE"'.service &&
+        echo "Ожидание запуска бота..." &&
+        
+        RETRY=0 &&
+        MAX_RETRY=30 &&
+        while [ $RETRY -lt $MAX_RETRY ]; do
+          BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+          if [ "$BOT_STATUS" = "active" ]; then
+            echo "✓ Бот запущен" &&
+            break
+          fi &&
+          echo "Бот еще запускается ($RETRY/$MAX_RETRY)..." &&
+          sleep 1 &&
+          RETRY=$((RETRY + 1))
+        done &&
+        
+        echo "" &&
+        echo "=== Проверка статуса сервисов ===" &&
+        SERVER_STATUS=$(systemctl is-active '"$SERVER_SERVICE"'.service) || true &&
+        BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+        
+        echo "FastAPI сервер: $SERVER_STATUS" &&
+        echo "Telegram бот: $BOT_STATUS" &&
+        
+        if [ "$SERVER_STATUS" != "active" ]; then
+          echo "❌ Ошибка: FastAPI сервер не запустился" &&
+          systemctl status '"$SERVER_SERVICE"'.service --no-pager || true &&
+          exit 1
+        fi &&
+        
+        if [ "$BOT_STATUS" != "active" ]; then
+          echo "❌ Ошибка: Telegram бот не запустился" &&
+          echo "Попытка запуска бота напрямую для диагностики..." &&
+          systemctl stop '"$BOT_SERVICE"'.service || true &&
+          cd '"$CURRENT_LINK"' &&
+          . '"$VENV_PATH"'/bin/activate &&
+          timeout 10 pipenv run python run.py || true &&
+          systemctl start '"$BOT_SERVICE"'.service &&
+          sleep 3 &&
+          BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+          if [ "$BOT_STATUS" != "active" ]; then
+            systemctl status '"$BOT_SERVICE"'.service --no-pager || true &&
+            journalctl -u '"$BOT_SERVICE"'.service -n 50 --no-pager || true &&
+            exit 1
+          fi
+        fi &&
+        
+        echo "✓ Все сервисы запущены" &&
+        
+        echo "" &&
+        echo "=== Health check после reload ===" &&
+        curl -f http://localhost:8080/status || exit 1 &&
+        echo "✓ Health check успешен" &&
+        
+        echo "" &&
+        echo "=== Проверка файла логов ===" &&
+        if [ ! -f '"$CURRENT_LINK"'/log/fastapi_8080.log ]; then
+          echo "⚠ Warning: Файл логов fastapi_8080.log не создан после reload" &&
+          echo "Для создания файла логов необходим restart (а не reload)" &&
+          echo "Файл будет создан при следующем запросе к API или при restart сервиса"
         else
-          git pull $REPO_URL dev --no-rebase;
+          echo "✓ Файл логов fastapi_8080.log существует"
+        fi &&
+        
+        echo "" &&
+        echo "=== Деплой завершен успешно ===" &&
+        echo "Текущая версия: $(readlink '"$CURRENT_LINK"')" &&
+        echo "Предыдущая версия: $(readlink '"$PREVIOUS_LINK"')" &&
+        echo "Логи: $(readlink '"$LOG_LINK"')"
+      '
+
+# Переключение на новую версию для prod
+switch_prod:
+  stage: delivery_and_switch
+  needs: ["delivery_prod"]
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  before_script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+  script:
+    - |
+      ssh "$SSH_USER"@"$PROD_IP" '
+        set -e &&
+        
+        LATEST_RELEASE=$(ls '"$RELEASES_DIR"' | sort -r | head -1) &&
+        
+        if [ -z "$LATEST_RELEASE" ]; then
+          echo "Ошибка: Релизы не найдены в '"$RELEASES_DIR"'" &&
+          exit 1
+        fi &&
+        
+        NEW_RELEASE_PATH='"$RELEASES_DIR"'/$LATEST_RELEASE &&
+        
+        echo "=== Переключение на релиз: $LATEST_RELEASE ===" &&
+        
+        if [ -L '"$CURRENT_LINK"' ]; then
+          CURRENT_TARGET=$(readlink -f '"$CURRENT_LINK"') &&
+          rm -f '"$PREVIOUS_LINK"' &&
+          ln -s $CURRENT_TARGET '"$PREVIOUS_LINK"' &&
+          echo "✓ Предыдущая версия сохранена: $CURRENT_TARGET"
+        fi &&
+        
+        rm -f '"$CURRENT_LINK"' &&
+        ln -s $NEW_RELEASE_PATH '"$CURRENT_LINK"' &&
+        echo "✓ Симлинк обновлен: '"$CURRENT_LINK"' -> $NEW_RELEASE_PATH" &&
+        
+        rm -f '"$LOG_LINK"' &&
+        ln -s '"$CURRENT_LINK"'/log '"$LOG_LINK"' &&
+        echo "✓ Логи доступны: '"$LOG_LINK"'" &&
+        
+        echo "" &&
+        echo "=== Health check перед reload ===" &&
+        curl -f http://localhost:8090/status || echo "⚠ Warning: health check failed" &&
+        
+        echo "" &&
+        echo "=== Graceful reload FastAPI сервера (zero downtime) ===" &&
+        systemctl reload '"$SERVER_SERVICE"'.service &&
+        echo "Ожидание запуска сервера..." &&
+        sleep 5 &&
+        
+        echo "=== Graceful reload Telegram бота (zero downtime) ===" &&
+        systemctl reload '"$BOT_SERVICE"'.service &&
+        echo "Ожидание запуска бота..." &&
+        
+        RETRY=0 &&
+        MAX_RETRY=30 &&
+        while [ $RETRY -lt $MAX_RETRY ]; do
+          BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+          if [ "$BOT_STATUS" = "active" ]; then
+            echo "✓ Бот запущен" &&
+            break
+          fi &&
+          echo "Бот еще запускается ($RETRY/$MAX_RETRY)..." &&
+          sleep 1 &&
+          RETRY=$((RETRY + 1))
+        done &&
+        
+        echo "" &&
+        echo "=== Проверка статуса сервисов ===" &&
+        SERVER_STATUS=$(systemctl is-active '"$SERVER_SERVICE"'.service) || true &&
+        BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+        
+        echo "FastAPI сервер: $SERVER_STATUS" &&
+        echo "Telegram бот: $BOT_STATUS" &&
+        
+        if [ "$SERVER_STATUS" != "active" ]; then
+          echo "❌ Ошибка: FastAPI сервер не запустился" &&
+          systemctl status '"$SERVER_SERVICE"'.service --no-pager || true &&
+          exit 1
+        fi &&
+        
+        if [ "$BOT_STATUS" != "active" ]; then
+          echo "❌ Ошибка: Telegram бот не запустился" &&
+          echo "Попытка запуска бота напрямую для диагностики..." &&
+          systemctl stop '"$BOT_SERVICE"'.service || true &&
+          cd '"$CURRENT_LINK"' &&
+          . '"$VENV_PATH"'/bin/activate &&
+          timeout 10 pipenv run python run.py || true &&
+          systemctl start '"$BOT_SERVICE"'.service &&
+          sleep 3 &&
+          BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+          if [ "$BOT_STATUS" != "active" ]; then
+            systemctl status '"$BOT_SERVICE"'.service --no-pager || true &&
+            journalctl -u '"$BOT_SERVICE"'.service -n 50 --no-pager || true &&
+            exit 1
+          fi
+        fi &&
+        
+        echo "✓ Все сервисы запущены" &&
+        
+        echo "" &&
+        echo "=== Health check после reload ===" &&
+        curl -f http://localhost:8090/status || exit 1 &&
+        echo "✓ Health check успешен" &&
+        
+        echo "" &&
+        echo "=== Проверка файла логов ===" &&
+        if [ ! -f '"$CURRENT_LINK"'/log/fastapi_8090.log ]; then
+          echo "⚠ Warning: Файл логов fastapi_8090.log не создан после reload" &&
+          echo "Для создания файла логов необходим restart (а не reload)" &&
+          echo "Файл будет создан при следующем запросе к API или при restart сервиса"
+        else
+          echo "✓ Файл логов fastapi_8090.log существует"
+        fi &&
+        
+        echo "" &&
+        echo "=== Деплой завершен успешно ===" &&
+        echo "Текущая версия: $(readlink '"$CURRENT_LINK"')" &&
+        echo "Предыдущая версия: $(readlink '"$PREVIOUS_LINK"')" &&
+        echo "Логи: $(readlink '"$LOG_LINK"')"
+      '
+
+# Прогон тестов только для прода
+test:
+  stage: test
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+  before_script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+  script:
+    - |
+      ssh "$SSH_USER"@"$PROD_IP" '
+        set -e &&
+        
+        echo "=== Запуск тестов ===" &&
+        
+        if [ -L '"$CURRENT_LINK"' ]; then
+          cd '"$CURRENT_LINK"' &&
+          . '"$VENV_PATH"'/bin/activate &&
+          pipenv run python -m pytest -s tests &&
+          echo "✓ Все тесты пройдены успешно"
+        else
+          echo "❌ Ошибка: Текущий релиз не найден" &&
+          exit 1
         fi
-      "
-    - rsync -avz "$PROD_ENV" "$PROD_CR" "$PROD_USER"@"$PROD_IP":/$REPO_CAT/config 
-    - ssh "$PROD_USER"@"$PROD_IP" "
-        cd $REPO_CAT/config &&
-        mv PROD_ENV .env &&
-        mv PROD_CR cr.json
-      "
+      '
 
+# Откат на предыдущую версию для dev
+rollback_dev:
+  stage: rollback
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "dev"'
+      when: manual
+  before_script:
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
+    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
+    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
+  script:
+    - |
+      ssh "$TEST_USER"@"$TEST_IP" '
+        set -e &&
+        
+        if [ ! -L '"$PREVIOUS_LINK"' ]; then
+          echo "❌ Ошибка: Предыдущая версия для отката недоступна" &&
+          exit 1
+        fi &&
+        
+        PREVIOUS_PATH=$(readlink -f '"$PREVIOUS_LINK"') &&
+        echo "=== Откат на версию: $PREVIOUS_PATH ===" &&
+        
+        TEMP_LINK='"$CURRENT_LINK"'.tmp &&
+        rm -f $TEMP_LINK &&
+        ln -s $PREVIOUS_PATH $TEMP_LINK &&
+        mv -Tf $TEMP_LINK '"$CURRENT_LINK"' &&
+        echo "✓ Симлинк обновлен на предыдущую версию" &&
+        
+        rm -f '"$LOG_LINK"' &&
+        ln -s '"$CURRENT_LINK"'/log '"$LOG_LINK"' &&
+        
+        echo "" &&
+        echo "=== Graceful reload на предыдущую версию ===" &&
+        systemctl reload '"$SERVER_SERVICE"'.service &&
+        echo "Ожидание запуска сервера..." &&
+        sleep 5 &&
+        
+        systemctl reload '"$BOT_SERVICE"'.service &&
+        echo "Ожидание запуска бота..." &&
+        
+        RETRY=0 &&
+        MAX_RETRY=30 &&
+        while [ $RETRY -lt $MAX_RETRY ]; do
+          BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+          if [ "$BOT_STATUS" = "active" ]; then
+            echo "✓ Бот запущен" &&
+            break
+          fi &&
+          echo "Бот еще запускается ($RETRY/$MAX_RETRY)..." &&
+          sleep 1 &&
+          RETRY=$((RETRY + 1))
+        done &&
+        
+        echo "" &&
+        echo "=== Проверка статуса ===" &&
+        SERVER_STATUS=$(systemctl is-active '"$SERVER_SERVICE"'.service) || true &&
+        BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+        
+        echo "FastAPI сервер: $SERVER_STATUS" &&
+        echo "Telegram бот: $BOT_STATUS" &&
+        
+        if [ "$SERVER_STATUS" != "active" ]; then
+          echo "❌ Ошибка: FastAPI сервер не запустился" &&
+          systemctl status '"$SERVER_SERVICE"'.service --no-pager || true &&
+          exit 1
+        fi &&
+        
+        if [ "$BOT_STATUS" != "active" ]; then
+          echo "❌ Ошибка: Telegram бот не запустился" &&
+          systemctl status '"$BOT_SERVICE"'.service --no-pager || true &&
+          journalctl -u '"$BOT_SERVICE"'.service -n 50 --no-pager || true &&
+          exit 1
+        fi &&
+        
+        echo "✓ Все сервисы запущены" &&
+        
+        echo "" &&
+        echo "=== Health check ===" &&
+        curl -f http://localhost:8080/status || exit 1 &&
+        echo "✓ Health check успешен" &&
+        
+        echo "" &&
+        echo "✓ Откат выполнен успешно" &&
+        echo "Текущая версия: $(readlink '"$CURRENT_LINK"')"
+      '
 
-creating_virtual_environment:
-  stage: setup_prod
-  needs: ["prepare_prod_server"]
+# Откат на предыдущую версию для prod
+rollback_prod:
+  stage: rollback
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
-  when: manual
-  script:
+  before_script:
     - eval $(ssh-agent -s)
     - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
     - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
     - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        apt install python3 libpq-dev gcc build-essential libssl-dev libffi-dev python3-dev ffmpeg -y &&
-        rm -rf /opt/.venv /opt/venv &&
-        cd /opt/ &&
-        virtualenv --python=python3.10 .venv &&
-        . /opt/.venv/bin/activate &&
-        cd $REPO_CAT &&
-        pip install pipenv &&
-        pip install -U setuptools &&
-        pipenv install
-        pipenv sync
-      "
+  script:
+    - |
+      ssh "$SSH_USER"@"$PROD_IP" '
+        set -e &&
+        
+        if [ ! -L '"$PREVIOUS_LINK"' ]; then
+          echo "❌ Ошибка: Предыдущая версия для отката недоступна" &&
+          exit 1
+        fi &&
+        
+        PREVIOUS_PATH=$(readlink -f '"$PREVIOUS_LINK"') &&
+        echo "=== Откат на версию: $PREVIOUS_PATH ===" &&
+        
+        TEMP_LINK='"$CURRENT_LINK"'.tmp &&
+        rm -f $TEMP_LINK &&
+        ln -s $PREVIOUS_PATH $TEMP_LINK &&
+        mv -Tf $TEMP_LINK '"$CURRENT_LINK"' &&
+        echo "✓ Симлинк обновлен на предыдущую версию" &&
+        
+        rm -f '"$LOG_LINK"' &&
+        ln -s '"$CURRENT_LINK"'/log '"$LOG_LINK"' &&
+        
+        echo "" &&
+        echo "=== Graceful reload на предыдущую версию ===" &&
+        systemctl reload '"$SERVER_SERVICE"'.service &&
+        echo "Ожидание запуска сервера..." &&
+        sleep 5 &&
+        
+        systemctl reload '"$BOT_SERVICE"'.service &&
+        echo "Ожидание запуска бота..." &&
+        
+        RETRY=0 &&
+        MAX_RETRY=30 &&
+        while [ $RETRY -lt $MAX_RETRY ]; do
+          BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+          if [ "$BOT_STATUS" = "active" ]; then
+            echo "✓ Бот запущен" &&
+            break
+          fi &&
+          echo "Бот еще запускается ($RETRY/$MAX_RETRY)..." &&
+          sleep 1 &&
+          RETRY=$((RETRY + 1))
+        done &&
+        
+        echo "" &&
+        echo "=== Проверка статуса ===" &&
+        SERVER_STATUS=$(systemctl is-active '"$SERVER_SERVICE"'.service) || true &&
+        BOT_STATUS=$(systemctl is-active '"$BOT_SERVICE"'.service) || true &&
+        
+        echo "FastAPI сервер: $SERVER_STATUS" &&
+        echo "Telegram бот: $BOT_STATUS" &&
+        
+        if [ "$SERVER_STATUS" != "active" ]; then
+          echo "❌ Ошибка: FastAPI сервер не запустился" &&
+          systemctl status '"$SERVER_SERVICE"'.service --no-pager || true &&
+          exit 1
+        fi &&
+        
+        if [ "$BOT_STATUS" != "active" ]; then
+          echo "❌ Ошибка: Telegram бот не запустился" &&
+          systemctl status '"$BOT_SERVICE"'.service --no-pager || true &&
+          journalctl -u '"$BOT_SERVICE"'.service -n 50 --no-pager || true &&
+          exit 1
+        fi &&
+        
+        echo "✓ Все сервисы запущены" &&
+        
+        echo "" &&
+        echo "=== Health check ===" &&
+        curl -f http://localhost:8090/status || exit 1 &&
+        echo "✓ Health check успешен" &&
+        
+        echo "" &&
+        echo "✓ Откат выполнен успешно" &&
+        echo "Текущая версия: $(readlink '"$CURRENT_LINK"')"
+      '
 
-deploy_supervisor_configs:
-  stage: setup_prod
-  needs: ["creating_virtual_environment"]
-  tags:
-    - Rechka-Ai_prod
+# Очистка старых релизов для dev
+cleanup_dev:
+  stage: cleanup
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      changes:
-        - templates/supervisord/*.conf
+    - if: '$CI_COMMIT_BRANCH == "dev"'
       when: manual
-      allow_failure: true
-    - when: manual
-  script:
+  before_script:
     - eval $(ssh-agent -s)
     - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
     - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
     - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        cp $REPO_CAT/templates/supervisord/*.conf /etc/supervisor/conf.d/ &&
-        supervisorctl reread &&
-        supervisorctl update
-      "
-  
-restart_FastAPI_Service:
-  stage: restart_prod
-  tags:
-    - Rechka-Ai_prod
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - when: never
   script:
-    - eval $(ssh-agent -s)
-    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
-    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
-    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        supervisorctl restart $FastAPI_Service_name &&
-        supervisorctl status $FastAPI_Service_name 
-      "
+    - |
+      ssh "$TEST_USER"@"$TEST_IP" '
+        set -e &&
+        
+        echo "=== Очистка старых релизов ===" &&
+        echo "Оставляем последние '"$KEEP_RELEASES"' релиза..." &&
+        
+        cd '"$RELEASES_DIR"' &&
+        RELEASES_COUNT=$(ls | wc -l) &&
+        
+        if [ $RELEASES_COUNT -gt '"$KEEP_RELEASES"' ]; then
+          CURRENT_RELEASE=$(basename $(readlink -f '"$CURRENT_LINK"' 2>/dev/null || echo "")) &&
+          PREVIOUS_RELEASE=$(basename $(readlink -f '"$PREVIOUS_LINK"' 2>/dev/null || echo "")) &&
+          
+          echo "Защищенные релизы: $CURRENT_RELEASE, $PREVIOUS_RELEASE" &&
+          
+          DELETED=0 &&
+          ls | sort -r | tail -n +$(('"$KEEP_RELEASES"' + 1)) | while read release; do
+            if [ "$release" != "$CURRENT_RELEASE" ] && [ "$release" != "$PREVIOUS_RELEASE" ]; then
+              echo "Удаление: $release" &&
+              rm -rf $release &&
+              DELETED=$((DELETED + 1))
+            else
+              echo "Сохранение: $release (защищен)"
+            fi
+          done &&
+          
+          echo "✓ Очистка завершена"
+        else
+          echo "Релизов: $RELEASES_COUNT. Хранение: '"$KEEP_RELEASES"'. Нечего удалять."
+        fi
+      '
 
-restart_restart_BOT_Service:
-  stage: restart_prod
-  tags:
-    - Rechka-Ai_prod
+# Очистка старых релизов для prod
+cleanup_prod:
+  stage: cleanup
   rules:
-    - if: $CI_COMMIT_BRANCH == "main"
+    - if: '$CI_COMMIT_BRANCH == "main"'
       when: manual
-      allow_failure: true
-    - when: never
-  script:
+  before_script:
     - eval $(ssh-agent -s)
     - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
     - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
     - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
     - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        supervisorctl restart $BOT_Service_name &&
-        supervisorctl status $BOT_Service_name 
-      "
-
-restart_Analytics_Service:
-  stage: restart_prod
-  tags:
-    - Rechka-Ai_prod
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - when: never
   script:
-    - eval $(ssh-agent -s)
-    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
-    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
-    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        supervisorctl restart $Analytics_Service_name  &&
-        supervisorctl status $Analytics_Service_name
-      "
-
-restart_Download_attempt_Service:
-  stage: restart_prod
-  tags:
-    - Rechka-Ai_prod
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - when: never
-  script:
-    - eval $(ssh-agent -s)
-    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
-    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
-    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        supervisorctl restart $Download_attempt_Service_name &&
-        supervisorctl status $Download_attempt_Service_name 
-      "
-
-restart_Sipuni_Service:
-  stage: restart_prod
-  tags:
-    - Rechka-Ai_prod
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - when: never
-  script:
-    - eval $(ssh-agent -s)
-    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
-    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
-    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        supervisorctl restart $Sipuni_Service_name &&
-        supervisorctl status $Sipuni_Service_name
-      "
-
-restart_Beeline_president_Service:
-  stage: restart_prod
-  tags:
-    - Rechka-Ai_prod
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - when: never
-  script:
-    - eval $(ssh-agent -s)
-    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
-    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
-    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        supervisorctl restart $Beeline_president_Service_name &&
-        supervisorctl status $Beeline_president_Service_name 
-      "
-restart_Beeline_missier_pirsing_Service:
-    stage: restart_prod
-    tags:
-      - Rechka-Ai_prod
-    rules:
-      - if: $CI_COMMIT_BRANCH == "main"
-        when: manual
-        allow_failure: true
-      - when: never
-    script:
-      - eval $(ssh-agent -s)
-      - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
-      - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
-      - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-      - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-      - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-          supervisorctl restart $Beeline_missier_pirsing_Service_name &&
-          supervisorctl status $Beeline_missier_pirsing_Service_name 
-        "
-      
-restart_Beeline_bassein_service:
-  stage: restart_prod
-  tags:
-    - Rechka-Ai_prod
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-      allow_failure: true
-    - when: never
-  script:
-    - eval $(ssh-agent -s)
-    - mkdir -p ~/.ssh && touch ~/.ssh/known_hosts
-    - echo "StrictHostKeyChecking no" >> ~/.ssh/ssh_config
-    - echo "$SSH_KNOWN_HOSTS" >> ~/.ssh/known_hosts
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add - > /dev/null
-    - ssh "$PROD_RF_USER"@"$PROD_RF_IP" "
-        supervisorctl restart $Beeline_bassein_service_Service_name &&
-        supervisorctl status $Beeline_bassein_service_Service_name
-      "
-      
+    - |
+      ssh "$SSH_USER"@"$PROD_IP" '
+        set -e &&
+        
+        echo "=== Очистка старых релизов ===" &&
+        echo "Оставляем последние '"$KEEP_RELEASES"' релиза..." &&
+        
+        cd '"$RELEASES_DIR"' &&
+        RELEASES_COUNT=$(ls | wc -l) &&
+        
+        if [ $RELEASES_COUNT -gt '"$KEEP_RELEASES"' ]; then
+          CURRENT_RELEASE=$(basename $(readlink -f '"$CURRENT_LINK"' 2>/dev/null || echo "")) &&
+          PREVIOUS_RELEASE=$(basename $(readlink -f '"$PREVIOUS_LINK"' 2>/dev/null || echo "")) &&
+          
+          echo "Защищенные релизы: $CURRENT_RELEASE, $PREVIOUS_RELEASE" &&
+          
+          DELETED=0 &&
+          ls | sort -r | tail -n +$(('"$KEEP_RELEASES"' + 1)) | while read release; do
+            if [ "$release" != "$CURRENT_RELEASE" ] && [ "$release" != "$PREVIOUS_RELEASE" ]; then
+              echo "Удаление: $release" &&
+              rm -rf $release &&
+              DELETED=$((DELETED + 1))
+            else
+              echo "Сохранение: $release (защищен)"
+            fi
+          done &&
+          
+          echo "✓ Очистка завершена"
+        else
+          echo "Релизов: $RELEASES_COUNT. Хранение: '"$KEEP_RELEASES"'. Нечего удалять."
+        fi
+      '

@@ -7,7 +7,7 @@ class CBData(str, Enum):
     Pyrogram Callback Data
     """
     buy_minute_pack = "buy-minute-pack"
-    change_mode = "change-mode"
+    change_report = "change-report"
 
 
 class JsonType(str, Enum):

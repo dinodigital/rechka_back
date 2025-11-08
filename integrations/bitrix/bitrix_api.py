@@ -3,15 +3,16 @@ from urllib.parse import urlparse
 
 import bitrix24
 
-from integrations.bitrix.bx_models import BxWhData
 from integrations.bitrix.exceptions import DataIsNotReadyError
 from integrations.bitrix.models import CRMEntityType, CRMEntityTypeID
 
 
 class Bitrix24:
+
     def __init__(self, webhook):
         self.bx24 = bitrix24.Bitrix24(webhook)
         self.domain = self.extract_domain(webhook)
+        self.entity_calls = None
 
     def check_integration(self):
         """
@@ -40,10 +41,11 @@ class Bitrix24:
         bx_filter = {"CALL_ID": call_id}
         response = self.bx24.callMethod(bx_method, filter=bx_filter)
 
-        if response[0].get("RECORD_FILE_ID") is None:
+        call_info = response[0]
+        if call_info.get("RECORD_FILE_ID") is None:
             raise DataIsNotReadyError('Звонок еще не загрузился в Битрикс')
 
-        return response[0]
+        return call_info
 
     def get_file_info(self, file_id):
         """
@@ -305,46 +307,35 @@ class Bitrix24:
         response = self.bx24.callMethod(method, params=params)
         return response
 
-    def get_bitrix_base_data(self, bx_data: BxWhData, call_info) -> dict:
+    def get_call_url(self, record_file_id) -> str:
+        file_info = self.get_file_info(record_file_id)
+        call_url = file_info['DOWNLOAD_URL']
+        return call_url
+
+    def get_deal_url(
+            self,
+            entity_type,
+            entity_id,
+    ) -> Optional[str]:
         """
-        Возвращает базовую информацию о сделке
+        Возвращает URL сделки переданной сущности.
         """
-        # ФИО ответственного
-        responsible_user_name = self.get_user_name(bx_data.PORTAL_USER_ID)
+        if entity_type == CRMEntityType.CONTACT:
+            deal_url = self.make_contact_url(entity_id)
 
-        # URL сделки
-        deal_url = None
-        if call_info['CRM_ENTITY_TYPE'] in [CRMEntityType.CONTACT, CRMEntityType.COMPANY]:
-            deal_id = self.get_activity_deal_id(bx_data.CRM_ACTIVITY_ID)
-            if deal_id:
-                deal_url = self.make_deal_url(deal_id)
+        elif entity_type == CRMEntityType.LEAD:
+            deal_url = self.make_lead_url(entity_id)
 
-        if deal_url is None:
-            entity_id = call_info["CRM_ENTITY_ID"]
+        elif entity_type == CRMEntityType.DEAL:
+            deal_url = self.make_deal_url(entity_id)
 
-            if call_info['CRM_ENTITY_TYPE'] == CRMEntityType.CONTACT:
-                deal_url = self.make_contact_url(entity_id)
+        elif entity_type == CRMEntityType.COMPANY:
+            deal_url = self.make_company_url(entity_id)
 
-            elif call_info['CRM_ENTITY_TYPE'] == CRMEntityType.LEAD:
-                deal_url = self.make_lead_url(entity_id)
+        else:
+            deal_url = None
 
-            elif call_info['CRM_ENTITY_TYPE'] == CRMEntityType.DEAL:
-                deal_url = self.make_deal_url(entity_id)
-
-            elif call_info['CRM_ENTITY_TYPE'] == CRMEntityType.COMPANY:
-                deal_url = self.make_company_url(entity_id)
-            else:
-                deal_url = "Звонок не относится ни к контакту, ни к лиду, ни к сделке"
-
-        # URL звонка
-        file_info = self.get_file_info(call_info["RECORD_FILE_ID"])
-        call_url = file_info["DOWNLOAD_URL"]
-
-        return {
-            "responsible_user_name": responsible_user_name,
-            "call_url": call_url,
-            "deal_url": deal_url
-        }
+        return deal_url
 
     def get_crm_deal_userfield_list(self) -> list:
         # Возвращает список пользовательских полей сделок по фильтру.
@@ -382,6 +373,30 @@ class Bitrix24:
             data.append(item)
         return data
 
+    def get_deal_fields(self):
+        """
+        Возвращает описание полей сделки, в том числе пользовательских.
+        """
+        return self.bx24.callMethod('crm.deal.fields')
+
+    def get_lead_fields(self):
+        """
+        Возвращает описание полей лида, в том числе пользовательских.
+        """
+        return self.bx24.callMethod('crm.lead.fields')
+
+    def get_contact_fields(self):
+        """
+        Возвращает описание полей контакта, в том числе пользовательских.
+        """
+        return self.bx24.callMethod('crm.contact.fields')
+
+    def get_company_fields(self):
+        """
+        Возвращает описание полей компании, в том числе пользовательских.
+        """
+        return self.bx24.callMethod('crm.company.fields')
+
     def generate_entity_link(self, crm_entity_type: str | None, crm_entity_id: str) -> str:
         """
         Генерирует ссылку на сущность в Bitrix24.
@@ -400,7 +415,7 @@ class Bitrix24:
 
         raise ValueError(f"Неизвестный тип сущности: {crm_entity_type}")
 
-    def get_category_list(self, entity_type_id: CRMEntityTypeID) -> dict:
+    def get_category_list(self, entity_type_id: str) -> dict:
         """
         Получает список воронок (направлений), которые относятся к типу объекта CRM с идентификатором entity_type_id.
         """
@@ -415,7 +430,7 @@ class Bitrix24:
         """
         Возвращает список воронок.
         """
-        deal_categories = self.get_category_list(CRMEntityTypeID.DEAL)['categories']
+        deal_categories = self.get_category_list(CRMEntityTypeID.DEAL.value)['categories']
 
         funnels = []
         for category in deal_categories:
@@ -428,13 +443,9 @@ class Bitrix24:
         Возвращает список этапов для определенной воронки сделки.
         """
         if funnel_id == '0':
-            method = 'crm.status.list'
-            params = {'filter': {'ENTITY_ID': 'DEAL_STAGE'}}
+            stages = self.get_status_list('DEAL_STAGE')
         else:
-            method = 'crm.dealcategory.stage.list'
-            params = {'id': funnel_id}
-
-        stages = self.bx24.callMethod(method, params=params)
+            stages = self.get_deal_stages(funnel_id)
         return stages
 
     def get_funnels_with_stages(self) -> List[dict]:
@@ -454,7 +465,7 @@ class Bitrix24:
             })
         return result
 
-    def get_status_list(self, entity_id: str):
+    def get_status_list(self, entity_id: str) -> List[dict]:
         """
         Возвращает список элементов справочника по фильтру.
         Является реализацией списочного метода для элементов справочников.
@@ -470,3 +481,32 @@ class Bitrix24:
         Возвращает этапы лидов (они не привязаны к воронкам).
         """
         return self.get_status_list('STATUS')
+
+    def get_deal_stages(self, funnel_id: str) -> List[dict]:
+        """
+        Возвращает список стадий сделок для направления.
+        """
+        method = 'crm.dealcategory.stage.list'
+        params = {'id': funnel_id}
+        return self.bx24.callMethod(method, params=params)
+
+    def get_entity_calls(
+            self,
+            crm_entity_type: Optional[str],
+            crm_entity_id: Optional[int],
+            call_info: dict,
+            min_call_duration: Optional[int] = None,
+    ) -> list:
+        """
+        Возвращает звонки сущности.
+        Если список звонков для сущности биндинга пуст, то получаем для сущности в call_info.
+        """
+        if self.entity_calls is not None:
+            return self.entity_calls
+
+        entity_calls = self.get_calls_by_entity(crm_entity_type, crm_entity_id, min_call_duration)
+        if len(entity_calls) == 0:
+            entity_calls = self.get_calls_by_entity(call_info['CRM_ENTITY_TYPE'], call_info['CRM_ENTITY_ID'],
+                                                    min_call_duration)
+        self.entity_calls = entity_calls
+        return self.entity_calls

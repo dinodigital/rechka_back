@@ -1,3 +1,5 @@
+from typing import List
+
 import gspread
 from gspread import Spreadsheet
 from gspread.utils import ValueInputOption
@@ -63,18 +65,17 @@ class SheetsApi:
         if not row_number:
             row_number = self.row_number
 
-        logger.info(f"Вставляю строку #{row_number} в Гугл таблицу. Загружаю {len(values)} значений (столбцов).")
+        logger.info(f"Вставляю строку #{row_number} в Гугл таблицу {self.file.id}. "
+                    f"Загружаю {len(values)} значений (столбцов).")
         return self._insert_row(worksheet=self.analytics_sheet,
                                 row_number=row_number,
                                 values=values)
 
-
-def create_google_sheet_link(sheet_id):
-    """
-    Создание ссылки на Гугл таблицу по sheet_id
-    """
-    base_url = "https://docs.google.com/spreadsheets/d/"
-    return f"{base_url}{sheet_id}"
+    def insert_rows(self, values: list, row_number: int):
+        logger.info(f"Вставляю {len(values)} строк в Гугл таблицу {self.file.id}, начиная со строки #{row_number}.")
+        return self._insert_rows(worksheet=self.analytics_sheet,
+                                 row_number=row_number,
+                                 values=values)
 
 
 def generate_first_row(full_json):
@@ -151,10 +152,10 @@ class GSLoader:
         self.sh_api = SheetsApi(self.db_mode.sheet_id)
 
     @staticmethod
-    def get_call_default_upload_values(analyze_list, audio) -> list:
+    def get_call_default_upload_values(answers_texts: List[str], audio) -> list:
         logger.info("Генерирую строку для выгрузки в гугл таблицу")
         call_info = f"Длительность: {audio.duration_min_sec}\nИмя файла: {audio.name}"
-        values = [get_refresh_time(), call_info] + analyze_list
+        values = [get_refresh_time(), call_info] + answers_texts
         return values
 
     def upload_values_as_row(self, values: list):

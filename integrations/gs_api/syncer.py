@@ -30,7 +30,7 @@ def sync_leads_to_sheet(users, users_info):
         user_data = [user.created.strftime("%d.%m.%Y"),
                      str(user.tg_id),
                      users_info[user.tg_id]['full_name'],
-                     str(user.seconds_balance),
+                     '',
                      tg_link]
 
         if user.tg_id in record_mapping:

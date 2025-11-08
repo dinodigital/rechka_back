@@ -1,0 +1,18 @@
+{
+  "type": "create_integration",
+  "service_name": "zoom",
+  "telegram_id": 666666,
+  "account_id": "client-name",
+  "data": {
+    "access": {
+      "client_id": "",
+      "client_secret": "",
+      "account_id": ""
+    },
+    "filters": {
+      "min_duration": 0,
+      "max_duration": null,
+      "responsible_users": ["e-mail"]
+    }
+  }
+}

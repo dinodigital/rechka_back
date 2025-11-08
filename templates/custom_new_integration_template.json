@@ -4,7 +4,9 @@
   "service_name": "str",
   "account_id": "str",
   "data": {
-    "client_secret": "uuid",
+    "access": {
+      "client_secret": "uuid"
+    },
     "callback_auth_type": "str (optional)",
     "callback_auth_secret": "str (optional)"
   }

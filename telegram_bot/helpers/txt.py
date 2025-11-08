@@ -1,7 +1,7 @@
 from pyrogram.types import Message
 from loguru import logger
 
-from data.models import User, Payment, Mode, Task
+from data.models import User, Payment, Mode, Task, ActiveTelegramReport
 import config.config as cfg
 from telegram_bot.helpers.tg_data_classes import StartData
 
@@ -27,16 +27,20 @@ def admin_balance_added(minutes):
 
 
 def cabinet(db_user: User):
-    db_mode = db_user.get_active_mode()
-    if db_user.seconds_balance is None:
-        seconds_balance = 0
-        logger.error(f"[-] Ошибка получения баланса секунд пользователя (None).")
+
+    active_tg_report = ActiveTelegramReport.get_or_none(user=db_user)
+    if active_tg_report:
+        sheet_url = active_tg_report.report.sheet_url
     else:
-        seconds_balance = db_user.seconds_balance
+        logger.warning(f'Не найдена Гугл Таблица для пользователя ID={db_user.id}.')
+        sheet_url = ''
+
+    seconds_balance = db_user.get_seconds_balance()
     return f"""👤 <b>Личный кабинет</b> {db_user.tg_id}
 
+<b>ID компании:</b> {db_user.company.id}
 <b>Баланс:</b> {round(seconds_balance / 60, 1)} минут
-<b>Google таблица:</b> <a href="{db_mode.sheet_url}"> Открыть → </a>
+<b>Google таблица:</b> <a href="{sheet_url}"> Открыть → </a>
 
 ↘️ <i>Режим бота (<a href="https://telegra.ph/Rezhimy-SPEECHka-bot-10-09">что это?</a>)</i>"""
 
@@ -45,7 +49,7 @@ error = "Какая-то ошибка. Пробую еще раз."
 error_try_again = "Какая-то ошибка. Пришлите аудиофайл заново."
 error_no_db_user = "Бот вас не узнал. Свяжитесь с администратором @gorbunov."
 error_unsupported_ai_model = "Неподдерживаемая нейросетевая модель. Обратитесь к администратору."
-
+error_no_active_report = "Не указан активный отчет. Пожалуйста, включите один из своих отчетов."
 
 def mode_created(db_mode: Mode):
     return (f"✅ Режим <b>{db_mode.name}</b> успешно создан\n"
@@ -142,7 +146,7 @@ def admin_call_report(username, db_user: User, db_task: Task):
             f"👤 {username}\n"
             f"╠ tg_id: {db_user.tg_id}\n"
             f"╠ режим: {db_user.mode_id}\n"
-            f"╚ баланс: {db_user.seconds_balance} сек\n"
+            f"╚ баланс: {db_user.get_seconds_balance()} сек\n"
             f"\n"
             f"📞\n"
             f"╠ длительность: {db_task.duration_sec} сек\n"

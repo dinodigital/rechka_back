@@ -10,8 +10,8 @@
     "filters": {
       "min_duration": 0,
       "max_duration": 3600,
-      "responsible_phones": [],
-      "restricted_phones": [],
+      "responsible_phones": [str],
+      "restricted_phones": [str],
       "allowed_call_types": ["in", "out"]
     }
   }

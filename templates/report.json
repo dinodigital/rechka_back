@@ -27,7 +27,6 @@
     ]
   } ,
   "crm_data": {
-    "system_fields": ["entity_link", "phone_number", "call_type"],
-    "user_fields": []
+    "system_fields": ["entity_link", "phone_number", "call_type"]
   }
 }

@@ -1,40 +1,54 @@
+import json
 from typing import Optional
 
 from misc.time import get_refresh_time
 
 
-def generate_prompt(data, extra_data: Optional[dict] = None) -> str:
+def generate_prompt(
+        context: str,
+        mode_questions,
+        extra_data: Optional[dict] = None,
+) -> str:
     """
     extra_data – это словарь, значения которого нужно добавить в общий контекст промпта.
+
+    Промпт состоит из частей:
+    1. Общий контекст context.
+    2. Пользовательские переменные extra_data.
+    3. Данных о предыдущем звонке (опционально) extra_data["previous_call_analyze_data"].
+    4. Заключительной части.
     """
     if extra_data is None:
         extra_data = {}
+    extra_data['Текущая дата'] = get_refresh_time()
 
-    # Извлекаем контекст и вопросы
-    context = data['context']
-    context += f' Сейчас: {get_refresh_time()}. '
-    if extra_data:
-        context += 'Данные из CRM системы по этому звонку: \n'
-        for name, value in extra_data.items():
-            context += f'{name}: {value}\n'
-        context += '\n'
+    # Результаты предыдущего звонка обрабатываются отдельно.
+    previous_call_analyze_data = extra_data.pop('previous_call_analyze_data', None)
 
-    questions = data['questions']
+    # 1. Общий контекст.
+    prompt = (f'# Промпт для анализа продажных звонков\n'
+              f'\n'
+              f'## System Message\n'
+              f'{context}\n'
+              f'\n')
 
-    # Формируем промпт
-    prompt = f"""
-Проанализируй разговор и ответь на следующие вопросы. Твой ответ должен быть в формате JSON, содержащий только список объектов с ключами 'number', 'question' и 'answer' для каждого вопроса. Не добавляй никаких дополнительных комментариев или пояснений.
+    # 2. Пользовательские переменные.
+    prompt += ('## User Prompt\n'
+               '\n'
+               '### Метаданные звонка\n')
+    for name, value in extra_data.items():
+        prompt += f'- **{name}:** {value}\n'
+    prompt += '\n'
 
-Общий контекст разговора: {context}
+    # 3. Список вопросов.
+    prompt += '### Вопросы для анализа\n'
 
-Вот вопросы:
-"""
-
-    for index, question in enumerate(questions, start=1):
-        q_text = question['question']
-        q_context = question.get('context', '')
-        q_format = question.get('answer_format', '')
-        q_options = question.get('answer_options', '')
+    for index, question in enumerate(mode_questions, start=1):
+        q_text = question.question_text
+        q_context = question.context
+        q_format = question.answer_format
+        q_options = json.loads(question.answer_options) if question.answer_options else []
+        q_id = question.id
 
         prompt += f"{index}. {q_text}\n"
         if q_context:
@@ -43,24 +57,49 @@ def generate_prompt(data, extra_data: Optional[dict] = None) -> str:
             prompt += f"   Формат ответа: {q_format}\n"
         if q_options:
             prompt += f"   Варианты ответа: {', '.join(q_options)}\n"
+        if q_id:
+            prompt += f"   ID вопроса: {q_id}\n"
         prompt += "\n"
 
-    prompt += """
-Ответь только в следующем формате JSON, без дополнительных комментариев:
+    # 4. Результаты анализа предыдущего звонка (опционально).
+    if previous_call_analyze_data is not None:
+        prompt += f'''
+### Контекст предыдущего звонка
+**Результаты анализа предыдущего звонка (список ответов в том же порядке, что и текущие вопросы):**
+{previous_call_analyze_data}
 
-[
-    {
-        "number": 1,
-        "question": "Вопрос 1",
-        "answer": "Ответ 1"
-    },
-    {
-        "number": 2,
-        "question": "Вопрос 2",
-        "answer": "Ответ 2"
-    },
-    ...
-]
-"""
+**Правила анализа с учетом предыдущего звонка:**
+
+1. **Накопительная информация** (сохраняется между звонками):
+   - Презентация продукта - если ранее была проведена качественно, клиент уже владеет информацией
+   - Факты, потребности, боли, возражения клиента - если выяснены ранее, учитывай их как известные. Но выводи самые важные.
+   - Стиль работы МОПа - его профессиональные качества остаются
+
+2. **Независимые от предыдущих звонков показатели:**
+   - Вероятность продажи - может изменяться в любую сторону
+   - Настрой клиента - зависит от текущего разговора
+   - Работа с возражениями - оценивается только по текущему звонку
+
+3. **Логика преемственности:**
+   - Если информация уже была предоставлена в прошлом звонке, не снижай оценки за её отсутствие в текущем
+   - Учитывай развитие отношений и прогресс переговоров
+   - Анализируй изменения относительно предыдущих результатов
+        '''
+
+    # 5. Заключительная часть.
+    prompt += """
+### Формат ответа
+Ответь строго в JSON формате, без дополнительных комментариев, без лишних символов, без markdown и форматирования:
+{"ID вопроса": "твой ответ", "ID вопроса": "твой ответ"}
+Пример: {"123": "Ответ 1", "124": "Ответ 2"}]
+
+### Ограничения
+- Опирайся только на текст разговора
+- Отвечай на Русском языке
+- Отвечай в JSON без форматирования и Markdown
+- Давай конкретные, actionable рекомендации  
+- Используй профессиональную терминологию продаж
+- Будь объективным, но конструктивным
+    """
 
     return prompt

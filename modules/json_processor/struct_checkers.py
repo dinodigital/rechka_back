@@ -16,7 +16,7 @@ def is_create_mode_json(full_json: dict):
         return False
 
     # Проверка ключей внутри params
-    if not all(key in full_json["params"] for key in ["context", "final_model", "max_output_size", "questions"]):
+    if not all(key in full_json["params"] for key in ["context", "final_model", "questions"]):
         return False
 
     # Проверка, что params>questions это список

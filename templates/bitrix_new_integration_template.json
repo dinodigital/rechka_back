@@ -6,22 +6,23 @@
   "data": {
     "access": {
       "application_token": "",
-      "webhook_url": ""
+      "webhook_url": ! str
     },
     "settings": {
     },
     "filters": {
       "min_duration": 0,
-      "pipelines_in": [],
-      "pipelines_not_in": [],
-      "statuses_in": [],
-      "statuses_not_in": [],
-      "responsible_users": [],
-      "responsible_users_not_in": [],
+      "max_duration": int (optional),
+      "pipelines_in": [str],
+      "pipelines_not_in": [str],
+      "statuses_in": [str],
+      "statuses_not_in": [str],
+      "responsible_users": [str],
+      "responsible_users_not_in": [str],
       "write_note": true,
-      "bitrix_entities_in": [],
+      "bitrix_entities_in": [str],
       "only_first_call": false,
-      "restricted_phones": [],
+      "restricted_phones": [str],
       "allowed_call_types": ["in", "out"],
       "custom_fields": [
         {
@@ -33,8 +34,8 @@
       ]
     },
     "crm_data": {
+      "get_deal_timeout": 0,
       "system_fields": ["entity_link", "phone_number", "call_type", "index_number", "pipeline", "stage"],
-      "user_fields": [],
       "crm_fields": [
         {"crm_entity_type": "DEAL", "crm_field_id": "STAGE_ID", "comment": "Номер этапа"},
         {"crm_entity_type": "LEAD", "crm_field_id": "COMPANY_TITLE", "comment": "Название компании"}

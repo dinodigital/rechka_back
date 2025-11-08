@@ -1,9 +1,9 @@
 from loguru import logger
-from pyrogram import Client, types
+from pyrogram import Client
 from pyrogram.types import CallbackQuery, Message
 
 from config import config as cfg
-from data.models import User, Payment, Task, Mode
+from data.models import User, Payment, Report
 from integrations.robokassa.payment import create_robokassa_payment_link
 from helpers.db_helpers import create_payment
 from telegram_bot.helpers import txt, markup
@@ -37,6 +37,8 @@ def get_tg_file_id_from_message(message: Message):
         tg_file_id = message.video.file_id
     elif message.document and ('audio' in message.document.mime_type or 'video' in message.document.mime_type):
         tg_file_id = message.document.file_id
+    elif message.voice:
+        tg_file_id = message.voice.file_id
     else:
         tg_file_id = False
 
@@ -62,37 +64,30 @@ def request_money(cli: Client, db_user: User, audio_duration_in_sec: int):
     Запрос оплаты
     """
     minutes_to_go = round(audio_duration_in_sec / 60, 2)
-    current_balance = db_user.get_payer_balance()
+    current_balance = db_user.get_seconds_balance()
     db_user_minutes_balance = round(current_balance / 60, 2)
 
     cli.send_message(db_user.tg_id, txt.request_payment_light(db_user_minutes_balance, minutes_to_go))
 
 
-def send_user_call_report(txt_file_path, message_with_audio, db_user: User):
+def send_user_call_report(
+        txt_file_path: str,
+        message_with_audio: Message,
+        db_user: User,
+        report: Report,
+        caption: str = None,
+):
     """
     Отправляет пользователю текстовый отчет и кнопку перехода на таблицу
     """
-    db_mode: Mode = db_user.get_active_mode()
     file_name = f"Текстовый отчет {len(db_user.tasks) + 1}.txt"
 
+    reply_markup = markup.google_sheets(report.sheet_url) if report.sheet_url else None
     message_with_audio.reply_document(txt_file_path,
+                                      caption=caption,
                                       file_name=file_name,
-                                      reply_markup=markup.google_sheets(db_mode.sheet_url),
+                                      reply_markup=reply_markup,
                                       quote=True)
-
-
-def send_admin_call_report(cli: Client, message: Message, file_path, db_task: Task, chat_id=cfg.ADMIN_CHAT_ID):
-    """
-    Отправляет звонок и транскрипт в админский чат
-    """
-    tg_user: types.User = cli.get_users(db_task.user.tg_id)
-    tg_username = "@" + tg_user.username if tg_user.username else ""
-    db_user: User = db_task.user
-    db_mode: Mode = db_user.get_active_mode()
-
-    massage_with_audio: Message = message.forward(chat_id)
-    massage_with_audio.reply_document(file_path, caption=txt.admin_call_report(tg_username, db_user, db_task),
-                                      reply_markup=markup.google_sheets(db_mode.sheet_url))
 
 
 def get_user_info(cli, tg_ids):

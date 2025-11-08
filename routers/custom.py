@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, BackgroundTasks
 
-from data.models import Task
+from data.models import Task, RequestLog
 from data.server_models import CustomCallRequest, CustomTaskRequest
 from helpers.logging_utils import log_with_context
 from integrations.process_custom_webhook import has_access, create_task, process_custom_webhook
@@ -22,7 +22,15 @@ async def custom_webhook(call_request: CustomCallRequest,
         return {"status": 403, "message": "В доступе отказано"}
 
     db_task: Task = create_task(call_request)
-    background_tasks.add_task(log_with_context(process_custom_webhook), call_request, db_task)
+    context_id = getattr(request.state, 'context_id', None)
+    request_log_id = getattr(request.state, 'request_log_id', None)
+
+    # Связываем запрос с задачей.
+    if request_log_id is not None:
+        db_task.request_log = RequestLog.get(id=request_log_id)
+        db_task.save(only=['request_log'])
+
+    background_tasks.add_task(log_with_context(process_custom_webhook, context_id=context_id), call_request, db_task, request_log_id=request_log_id)
     return {"status": 200, "call_id": call_request.call_id, "task_id": db_task.id}
 
 

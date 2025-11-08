@@ -1,11 +1,12 @@
 import json
 
 from gspread import Spreadsheet
+from gspread.urls import SPREADSHEET_DRIVE_URL
 from pyrogram.types import Message
 
 from data.models import Integration, User, UserMode, Report, Mode
 from helpers.db_helpers import create_mode_from_json
-from integrations.gs_api.sheets import clone_template, generate_first_row, update_first_row, create_google_sheet_link
+from integrations.gs_api.sheets import clone_template, generate_first_row, update_first_row
 from modules.json_processor.struct_checkers import is_create_mode_json, is_create_report_json, is_update_report_json
 from telegram_bot.helpers import txt
 
@@ -109,8 +110,9 @@ def create_mode_with_json(message: Message, full_json: dict):
         sheet_id = sheet.id
     else:
         sheet_id = full_json["sheet_id"]
+        sheet_url = SPREADSHEET_DRIVE_URL % sheet_id
         message.reply(
-            f"✅ Google отчет создан:\n{create_google_sheet_link(sheet_id)}\n\n<i><u>Настройте ширину колонок</u> в таблице, чтобы отчет для клиента выглядел красиво</i>",
+            f"✅ Google отчет создан:\n{sheet_url}\n\n<i><u>Настройте ширину колонок</u> в таблице, чтобы отчет для клиента выглядел красиво</i>",
             disable_web_page_preview=True)
 
     # Создание нового Mode в БД

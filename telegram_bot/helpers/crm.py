@@ -7,8 +7,8 @@ from integrations.bitrix.bitrix_api import Bitrix24
 
 def create_bitrix_contact_and_deal(
         db_user: User,
-        phone_number: str,
-        username: Optional[str] = None,
+        username: str,
+        phone_number: Optional[str] = None,
         raise_on_exists: bool = False,
 ) -> Tuple[int, int]:
     """
@@ -29,19 +29,20 @@ def create_bitrix_contact_and_deal(
     # Создаем контакт.
     contact_fields = {
         cfg.BITRIX24_CONTACT_TG_ID_FIELD_NAME: db_user.tg_id,
-        'PHONE': [{'VALUE': phone_number, 'VALUE_TYPE': 'WORK'}],
         cfg.BITRIX24_CONTACT_REFERRER_FIELD_NAME: db_user.invited_by or 0,
+        'EMAIL': [{"VALUE": f'{username}@telegram.chatapp.online', "VALUE_TYPE": "MAILING"}],
     }
-    if username:
-        user_bx_email = f'{username}@telegram.chatapp.online'
-        contact_fields['EMAIL'] = [{"VALUE": user_bx_email, "VALUE_TYPE": "MAILING"}]
+    if phone_number:
+        contact_fields['PHONE'] = [{'VALUE': phone_number, 'VALUE_TYPE': 'WORK'}]
+
+    deal_title = f'Лид из бота @{username}'
     contact_id = bx24.add_contact(contact_fields)
 
     # Создаем сделку и связываем с только что созданным контактом.
     deal_fields = {
         'CATEGORY_ID': cfg.BITRIX24_NEW_TG_USER_PIPELINE_ID,
         'STAGE_ID': cfg.BITRIX24_NEW_TG_USER_STAGE_ID,
-        'TITLE': f'Лид из бота @{phone_number}',
+        'TITLE': deal_title,
         'SOURCE_ID': cfg.BITRIX24_NEW_TG_USER_SOURCE_ID,
         'UTM_SOURCE': 'self_telegram_bot',
         'UTM_MEDIUM': 'bot_registration',

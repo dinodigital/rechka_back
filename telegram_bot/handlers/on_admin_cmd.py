@@ -7,7 +7,7 @@ from loguru import logger
 from pyrogram import Client, filters
 from pyrogram.types import Message
 
-from data.models import User, Integration, IntegrationServiceName
+from data.models import User, Integration, IntegrationServiceName, Transaction, Company
 from helpers.tg_helpers import get_user_info
 from integrations.amo_crm.amo_api_core import AmoApi
 from integrations.bitrix.bitrix_api import Bitrix24
@@ -39,13 +39,52 @@ def add_balance_cmd(cli: Client, message: Message):
     if not db_user:
         return message.reply(f"Пользователь с tg_id {user_id} не найден в БД.")
 
-    if minutes_to_add > 0:
-        db_user.add_seconds_balance(minutes_to_add * 60)
-    else:
-        db_user.minus_seconds_balance(minutes_to_add * 60)
+    # minutes_to_add может быть как положительным, так и отрицательным.
+    db_user.company.add_balance(minutes_to_add * 60,
+                                payment_sum=0,
+                                payment_currency='RUB',
+                                payment_type=Transaction.PaymentType.ADMIN,
+                                description='Top-up by sys admin (tg bot)')
 
     cli.send_message(db_user.tg_id, txt.admin_balance_added(minutes_to_add))
     message.reply(f"ID: {user_id}, BALANCE: +{minutes_to_add} min")
+
+    raise pyrogram.StopPropagation
+
+
+@Client.on_message(~filters.bot & filters.command("transfer_minutes") & admin_filter)
+def transfer_minutes_cmd(cli: Client, message: Message):
+    """
+    Перевод минут баланса между пользователями.
+    """
+    args = message.text.split()
+    if len(args) != 4:
+        return message.reply("Неправильный формат команды. "
+                             "Правильный: /transfer_minutes from_user_tg_id to_user_tg_id minutes_to_transfer")
+
+    try:
+        from_user_tg_id = int(args[1])
+        to_user_tg_id = int(args[2])
+        minutes_to_transfer = int(args[3])
+    except ValueError:
+        return message.reply("Неправильный формат аргументов.")
+
+    if minutes_to_transfer < 0:
+        return message.reply("minutes_to_transfer должно быть положительным числом.")
+
+    from_user: User = User.get_or_none(tg_id=from_user_tg_id)
+    if from_user is None:
+        return message.reply(f"Пользователь с tg_id {from_user_tg_id} не найден в БД.")
+
+    to_user: User = User.get_or_none(tg_id=to_user_tg_id)
+    if to_user is None:
+        return message.reply(f"Пользователь с tg_id {to_user_tg_id} не найден в БД.")
+
+    Company.transfer_balance(from_user.company, to_user.company, minutes_to_transfer)
+
+    cli.send_message(from_user.tg_id, txt.admin_balance_added(-minutes_to_transfer))
+    cli.send_message(to_user.tg_id, txt.admin_balance_added(minutes_to_transfer))
+    message.reply(f"{from_user_tg_id=}, {to_user_tg_id=}, minutes_to_transfer: {minutes_to_transfer} min")
 
     raise pyrogram.StopPropagation
 
@@ -75,90 +114,6 @@ def sync_cmd(cli: Client, message: Message):
 
     text = f"Обновлено строк: {updated}\nДобавлено новых строк: {added}"
     m.edit_text(text, reply_markup=markup.with_close_btn())
-
-    raise pyrogram.StopPropagation
-
-
-@Client.on_message(~filters.bot & filters.command("set_payer_tg_id") & admin_filter)
-def set_payer_tg_id_cmd(cli: Client, message: Message):
-    """
-    Установка материнского баланса для пользователя.
-    Формат:
-        /set_payer_tg_id <user_tg_id> <payer_tg_id>
-        <user_tg_id> – Telegram ID пользователя.
-        <payer_tg_id> – Telegram ID пользователя с материнским балансом.
-    """
-    logger.info(f"tg_id: '{message.from_user.id}'  message: '{message.text}'")
-
-    args = message.text.split()
-
-    if len(args) != 3:
-        message.reply("Формат команды: /set_payer_tg_id user_tg_id payer_tg_id")
-        return None
-
-    try:
-        user_tg_id = int(args[1])
-    except Exception:
-        message.reply("Неправильный формат user_tg_id.")
-        return None
-
-    user = User.get_or_none(tg_id=user_tg_id)
-    if user is None:
-        message.reply(f"Не найден пользователь с tg_id {user_tg_id}.")
-        return None
-    
-    try:
-        payer_tg_id = int(args[2])
-    except Exception:
-        message.reply("Неправильный формат payer_tg_id.")
-        return None
-
-    payer = User.get_or_none(tg_id=payer_tg_id)
-    if payer is None:
-        message.reply(f"Не найден пользователь с tg_id {payer_tg_id}.")
-        return None
-
-    user.payer_tg_id = payer_tg_id
-    user.save()
-
-    logger.info(f'Материнский баланс для {user_tg_id} успешно установлен ({payer_tg_id}).')
-    message.reply(f'Материнский баланс для {user_tg_id} успешно установлен ({payer_tg_id}).')
-
-    raise pyrogram.StopPropagation
-
-
-@Client.on_message(~filters.bot & filters.command("remove_payer_tg_id") & admin_filter)
-def remove_payer_tg_id_cmd(cli: Client, message: Message):
-    """
-    Сбрасывает материнский баланс для пользователя.
-    Формат:
-        /remove_payer_tg_id <user_tg_id>
-        <user_tg_id> – Telegram ID пользователя, для которого нужно сбросить привязку к материнскому балансу.
-    """
-    logger.info(f"tg_id: '{message.from_user.id}'  message: '{message.text}'")
-
-    args = message.text.split()
-
-    if len(args) != 2:
-        message.reply("Формат команды: /remove_payer_tg_id user_tg_id")
-        return None
-
-    try:
-        user_tg_id = int(args[1])
-    except Exception:
-        message.reply("Неправильный формат user_tg_id.")
-        return None
-
-    user = User.get_or_none(tg_id=user_tg_id)
-    if user is None:
-        message.reply(f"Не найден пользователь с tg_id {user_tg_id}.")
-        return None
-
-    user.payer_tg_id = None
-    user.save()
-
-    logger.info(f'Материнский баланс для {user_tg_id} успешно сброшен.')
-    message.reply(f'Материнский баланс для {user_tg_id} успешно сброшен.')
 
     raise pyrogram.StopPropagation
 
@@ -263,5 +218,34 @@ def get_integration_fields_cmd(cli: Client, message: Message):
         return amo.get_leads_custom_fields()
 
     process_integration_and_send_result(cli, message, bitrix_func, amo_func, command_name='get_fields')
+
+    raise pyrogram.StopPropagation
+
+
+@Client.on_message(~filters.bot & filters.command('get_integration_data') & admin_filter)
+def get_integration_data_cmd(cli: Client, message: Message):
+    """
+    Выгрузка data интеграции.
+    """
+    args = message.text.split()
+    try:
+        if len(args) != 2:
+            raise ValueError
+        integration_id = int(args[1])
+    except (IndexError, ValueError):
+        message.reply(f'Формат команды: /get_integration_data integration_id')
+        return None
+
+    integration = Integration.get_or_none(id=integration_id)
+    if integration is None:
+        message.reply(f'Не удалось найти интеграцию с ID {integration_id}.')
+        return None
+
+    i_data = integration.data or ''
+    with BytesIO(i_data.encode('utf-8')) as f:
+        cli.send_document(message.from_user.id, f, file_name=f'i_data_{integration_id}.json')
+
+    logger.info(f'Отправили пользователю tg_id={message.from_user.id} '
+                f'файл с результатом команды "/get_integration_data {integration_id}".')
 
     raise pyrogram.StopPropagation

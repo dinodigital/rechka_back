@@ -34,6 +34,7 @@ class Audiofile:
         self.duration_in_sec = 0
         self.duration_in_min = 0
         self.duration_min_sec = ""
+        self.channels: int = 0
 
     @staticmethod
     def download_by_tg_file_id(cli: Client, tg_file_id):
@@ -147,6 +148,16 @@ class Audiofile:
         self.duration_min_sec = self._seconds_to_min_sec(self.duration_in_sec)
         return self
 
+    def _post_process_download(self):
+        self._load_durations(self.path)
+
+        try:
+            audio = AudioSegment.from_file(self.path)
+        except Exception as e:
+            logger.error(f"[-] Ошибка вычисления каналов аудиофайла. Детали: {e}")
+            raise Exception
+        self.channels = audio.channels
+
     def load_from_tg_message_with_audio(self, cli, message_with_audio: Message):
         """
         Наполняет экземпляр класса данными из telegram сообщения
@@ -156,21 +167,21 @@ class Audiofile:
         tg_file_id: str = get_tg_file_id_from_message(message_with_audio)
 
         self.path = self.download_by_tg_file_id(cli, tg_file_id)
-        self._load_durations(self.path)
+        self._post_process_download()
         self.name = get_tg_file_name(message_with_audio)
         self.url = tg_file_id
 
         return self
 
-    def load_from_url(self, url, name: Optional[str] = None):
+    def load_from_url(self, url, name: Optional[str] = None, headers: Optional[dict] = None):
         """
         Наполняет экземпляр класса данными из url
         """
         if name is None:
             name = str(uuid.uuid4())
 
-        self.path = self.download_by_url(url)
-        self._load_durations(self.path)
+        self.path = self.download_by_url(url, request_kwargs={'headers': headers})
+        self._post_process_download()
         self.name = name
         self.url = url
 
@@ -184,7 +195,7 @@ class Audiofile:
             name = str(uuid.uuid4())
 
         self.path = self.save_file_by_sipuni_headers(data, headers)
-        self._load_durations(self.path)
+        self._post_process_download()
         self.name = name
         self.url = ""
 
@@ -227,7 +238,7 @@ class Audiofile:
             tries=3, delay=1, backoff=4, logger=logger,
         )
 
-        self._load_durations(self.path)
+        self._post_process_download()
         self.name = name
         self.url = url
 

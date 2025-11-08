@@ -2,7 +2,7 @@
   "type": "create_integration",
   "service_name": "amocrm",
   "telegram_id": ❗️int,
-  "account_id": ❗️int,
+  "account_id": ❗str,
   "data": {
     "settings": {
       "entity_deal_number": "first" | "last" | 5
@@ -12,25 +12,24 @@
       "redirect_uri": "https://t.me/speechka_ai_bot",
       "client_secret": "❗️str",
       "client_id": "❗️str",
-      "code": "❗️str",
-      "access_token": "",
-      "refresh_token": ""
+      "code": "❗️str"
     },
     "filters": {
       "min_duration": ❗️int,
       "max_duration": ❗️int,
-      "pipelines_in": [],
-      "pipelines_not_in": [],
-      "statuses_in": [],
-      "statuses_not_in": [],
-      "responsible_users": [],
-      "responsible_users_not_in": [],
+      "pipelines_in": [int],
+      "pipelines_not_in": [int],
+      "statuses_in": [int],
+      "statuses_not_in": [int],
+      "responsible_users": [int],
+      "responsible_users_not_in": [int],
       "write_note": ❗️true,
       "only_first_call": ❗️false,
-      "restricted_phones": [],
+      "restricted_phones": [str],
       "allowed_call_types": ["in", "out"]
     },
     "crm_data": {
+      "get_deal_timeout": 0,
       "system_fields": ["entity_link", "phone_number", "call_type", "index_number"],
       "crm_fields": [
         {"crm_entity_type": "LEAD", "crm_field_id": "name", "comment": "Название сделки"},

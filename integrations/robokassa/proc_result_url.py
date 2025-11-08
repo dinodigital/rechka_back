@@ -23,7 +23,7 @@ def process_result_url(request_body):
     # Добавляем баланс пользователю в БД
     db_user: User = payment.user
     if db_user:
-        db_user.add_seconds_balance(payment.seconds)
+        db_user.company.add_balance(payment.seconds)
     else:
         return logger.error("Пользователь не обнаружен в БД")
 

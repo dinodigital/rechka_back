@@ -24,13 +24,14 @@ class AmoApiAuth:
     Авторизация к API AmoCRM
     """
 
-    def __init__(self, integration: Integration, with_handle_auth=True):
+    def __init__(self, integration: Integration, with_handle_auth=True, commit_on_update: bool = True):
         """
         Инициализация класса Авторизация к API AmoCRM.
 
         :param integration: интеграция с amoCRM
         """
         self.integration = integration
+        self.commit_on_update = commit_on_update
         self.data = json.loads(integration.data)
         self.access = self.data['access']
         self.subdomain = self.access["subdomain"]
@@ -84,7 +85,8 @@ class AmoApiAuth:
         self.data['access']['refresh_token'] = encrypt(refresh_token, config.FERNET_KEY)
         # Сохраняем в интеграцию
         self.integration.data = json.dumps(self.data)
-        self.integration.save()
+        if self.commit_on_update:
+            self.integration.save()
 
     def _get_new_tokens(self):
         """
@@ -98,18 +100,25 @@ class AmoApiAuth:
             "redirect_uri": self.redirect_uri
         }
         url = f'https://{self.subdomain}.amocrm.ru/oauth2/access_token'
-        response = requests.post(url, json=data).json()
+        response = requests.post(url, json=data)
+
+        if response.status_code == 403:
+            logger.error(f'Ошибка при авторизации: В доступе отказано. '
+                         f'Интеграция: {self.integration.id}.')
+            return response.text
+
+        json_response = response.json()
         try:
-            self.access_token = response["access_token"]
-            self.refresh_token = response["refresh_token"]
+            self.access_token = json_response["access_token"]
+            self.refresh_token = json_response["refresh_token"]
             self._save_tokens(self.access_token, self.refresh_token)
             return "ok"
         except Exception as e:
-            response_hint = f'{response.get("title")} ({response.get("hint")}).'
+            response_hint = f'{json_response.get("title")}: {json_response.get("detail")} ({json_response.get("hint")}).'
             logger.error(f"Ошибка при авторизации: {e}. "
                          f"Интеграция: {self.integration.id}. "
                          f"Ответ сервера: {response_hint}")
-            return response
+            return json_response
 
     def init_oauth2(self):
         """
@@ -123,18 +132,25 @@ class AmoApiAuth:
             "redirect_uri": self.redirect_uri
         }
         url = f'https://{self.subdomain}.amocrm.ru/oauth2/access_token'
-        response = requests.post(url, json=data).json()
+        response = requests.post(url, json=data)
+
+        if response.status_code == 403:
+            logger.error(f'Ошибка при авторизации: В доступе отказано. '
+                         f'Интеграция: {self.integration.id}.')
+            return response.text
+
+        json_response = response.json()
         try:
-            self.access_token = response["access_token"]
-            self.refresh_token = response["refresh_token"]
+            self.access_token = json_response["access_token"]
+            self.refresh_token = json_response["refresh_token"]
             self._save_tokens(self.access_token, self.refresh_token)
             return "ok"
         except Exception as e:
-            response_hint = f'{response.get("title")} ({response.get("hint")}).'
+            response_hint = f'{json_response.get("title")}: {json_response.get("detail")} ({json_response.get("hint")}).'
             logger.error(f"Ошибка при авторизации: {e}. "
                          f"Интеграция: {self.integration.id}. "
                          f"Ответ сервера: {response_hint}")
-            return response
+            return json_response
 
 
 class AmoApiBase(AmoApiAuth):
@@ -222,25 +238,42 @@ class AmoApi(AmoApiBase):
         response = self.base_request(type="patch", endpoint=endpoint, data=data)
         return response
 
-    def get_lead_by_id(self, lead_id):
+    def get_lead_by_id(self, lead_id, with_contacts: bool = False):
         """
         Документация:
             https://www.amocrm.ru/developers/content/crm_platform/leads-api#lead-detail
         """
         endpoint = f"/api/v4/leads/{lead_id}"
-        logger.info(f"Получаю лида по ID {lead_id}")
-        response: dict = self.base_request(endpoint=endpoint, type="get")
+        logger.info(f"Получаю лида по ID {lead_id} {with_contacts=}")
+        if with_contacts:
+            params = {'with': 'contacts'}
+        else:
+            params = None
+        response: dict = self.base_request(endpoint=endpoint, type="get", params=params)
         return response
 
-    def get_contact_by_id(self, contact_id):
+    def get_contact_by_id(self, contact_id, with_leads: bool = True):
         """
         Документация:
             https://www.amocrm.ru/developers/content/crm_platform/contacts-api#contact-detail
         """
         endpoint = f"/api/v4/contacts/{contact_id}"
-        logger.info(f"Получаю контакт по ID {contact_id}")
-        params = {'with': "leads"}
+        logger.info(f"Получаю контакт по ID {contact_id} {with_leads=}")
+        if with_leads:
+            params = {'with': "leads"}
+        else:
+            params = None
         response: dict = self.base_request(endpoint=endpoint, type="get", params=params)
+        return response
+
+    def get_company_by_id(self, company_id):
+        """
+        Документация:
+            https://www.amocrm.ru/developers/content/crm_platform/companies-api#company-detail
+        """
+        endpoint = f"/api/v4/companies/{company_id}"
+        logger.info(f"Получаю компанию по ID {company_id}")
+        response: dict = self.base_request(endpoint=endpoint, type="get")
         return response
 
     def get_responsible_user_name(self, responsible_user_id):
@@ -303,7 +336,7 @@ class AmoApi(AmoApiBase):
         :param number: номер сделки.
         :return: ID сделки.
         """
-        contact = self.get_contact_by_id(contact_id)
+        contact = self.get_contact_by_id(contact_id, with_leads=True)
         leads = contact['_embedded'].get("leads")
         try:
             lead_id = leads[number]['id'] if leads else 0
@@ -475,7 +508,11 @@ class AmoApi(AmoApiBase):
 
         for note in notes:
             params = note['params']
-            duration = int(params['duration'])
+            try:
+                duration = int(params['duration'])
+            # Несостоявшийся звонок.
+            except TypeError:
+                continue
 
             if duration > 0 and duration >= min_duration:
                 return {
@@ -484,7 +521,7 @@ class AmoApi(AmoApiBase):
                 }
         return {}
 
-    def check_call_filters(self, webhook: BaseNoteAmoWebhook, filters: dict, settings: dict) -> bool:
+    def check_call_filters(self, webhook: BaseNoteAmoWebhook, filters: dict, settings: dict, request_log_id: Optional[int] = None) -> bool:
         """
         Проверка фильтров:
         1. Типа примечания.
@@ -505,20 +542,24 @@ class AmoApi(AmoApiBase):
         """
         # Валидация типа примечания
         if webhook.note_type not in [AmoNoteTypeID.CALL_IN, AmoNoteTypeID.CALL_OUT]:
+            try:
+                note_type_name = AmoNoteTypeID(webhook.note_type).name
+            except ValueError:
+                note_type_name = 'Неизвестный тип'
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Не звонок. Note_type: {webhook.note_type}")
+                        f"Не звонок. Note_type: {webhook.note_type} ({note_type_name})", request_log_id=request_log_id)
             return False
 
         # Валидация длительности звонка
         if webhook.DURATION == 0:
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Звонок не состоялся. Duration: {webhook.DURATION}")
+                        f"Звонок не состоялся. Duration: {webhook.DURATION}", request_log_id=request_log_id)
             return False
 
         # Валидация ссылки на запись разговора
         if not webhook.LINK:
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Без ссылки на запись звонка. Вебхук: {webhook.__dict__}")
+                        f"Без ссылки на запись звонка. Вебхук: {webhook.__dict__}", request_log_id=request_log_id)
             return False
 
         # Валидация направления звонка.
@@ -530,28 +571,28 @@ class AmoApi(AmoApiBase):
                  (webhook.note_type == AmoNoteTypeID.CALL_OUT and CallTypeFilter.OUTBOUND_VALUE not in allowed_call_types)
             ):
                 logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                            f"Направление звонка: {webhook.note_type}. Фильтр: {allowed_call_types}")
+                            f"Направление звонка: {webhook.note_type}. Фильтр: {allowed_call_types}", request_log_id=request_log_id)
                 return False
 
         # Проверка минимальной длительности звонка
         min_call_duration = filters.get("min_duration")
         if min_call_duration and webhook.DURATION < min_call_duration:
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Не проходим по мин. длительности. Факт. длит.: {webhook.DURATION}, мин: {min_call_duration}")
+                        f"Не проходим по мин. длительности. Факт. длит.: {webhook.DURATION}, мин: {min_call_duration}", request_log_id=request_log_id)
             return False
 
         # Проверка максимальной длительности звонка
         max_call_duration = filters.get("max_duration")
         if max_call_duration and webhook.DURATION > max_call_duration:
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Не проходим по макс. длительности. Факт. длит.: {webhook.DURATION}, макс: {max_call_duration}")
+                        f"Не проходим по макс. длительности. Факт. длит.: {webhook.DURATION}, макс: {max_call_duration}", request_log_id=request_log_id)
             return False
 
         # Проверка на запрет на анализ телефонных номеров
         restricted_phones = filters.get("restricted_phones")
         if restricted_phones and phone_number_in_list(webhook.PHONE, restricted_phones):
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Установлен запрет на анализ телефона {webhook.PHONE}")
+                        f"Установлен запрет на анализ телефона {webhook.PHONE}", request_log_id=request_log_id)
             return False
 
         # Проверка только первого звонка
@@ -559,7 +600,7 @@ class AmoApi(AmoApiBase):
             first_call = self.get_first_call_by_entity_id(webhook.entity, webhook.element_id, filters['min_duration'])
             if not first_call or first_call['note_id'] != webhook.note_id:
                 logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                            f"Не проходим по первому звонку. Element id: {webhook.element_id}")
+                            f"Не проходим по первому звонку. Element id: {webhook.element_id}", request_log_id=request_log_id)
                 return False
 
         number = get_number_from_integration_settings(settings)
@@ -576,7 +617,7 @@ class AmoApi(AmoApiBase):
             lead_id = self.get_lead_id_from_webhook(webhook, number=number)
             if not lead_id or lead_id == "У контакта нет связанных сделок":
                 logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                            f"У контакта нет связанных сделок.")
+                            f"У контакта нет связанных сделок.", request_log_id=request_log_id)
                 return False
 
             lead_response = self.get_lead_by_id(lead_id)
@@ -585,37 +626,37 @@ class AmoApi(AmoApiBase):
             # Фильтр по этапам сделки
             if statuses_in and lead.status_id not in statuses_in:
                 logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                            f"Не проходим по статусу. Element id: {webhook.element_id}. Status_id: {lead.status_id}, Фильтр: {statuses_in=}")
+                            f"Не проходим по статусу. Element id: {webhook.element_id}. Status_id: {lead.status_id}, Фильтр: {statuses_in=}", request_log_id=request_log_id)
                 return False
 
             if statuses_not_in and lead.status_id in statuses_not_in:
                 logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                            f"Не проходим по статусу. Element id: {webhook.element_id}. Status_id: {lead.status_id}, Фильтр: {statuses_not_in=}")
+                            f"Не проходим по статусу. Element id: {webhook.element_id}. Status_id: {lead.status_id}, Фильтр: {statuses_not_in=}", request_log_id=request_log_id)
                 return False
 
             # Фильтр по воронкам
             if pipelines_in and lead.pipeline_id not in pipelines_in:
                 logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                            f"Не проходим по пайплайну. Pipeline_id: {lead.pipeline_id}, Фильтр: {pipelines_in}")
+                            f"Не проходим по пайплайну. Pipeline_id: {lead.pipeline_id}, Фильтр: {pipelines_in}", request_log_id=request_log_id)
                 return False
 
             # Исключение конкретных воронок
             if pipelines_not_in and lead.pipeline_id in pipelines_not_in:
                 logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                            f"Воронка исключена. Pipeline_id: {lead.pipeline_id}, Исключенные воронки: {pipelines_not_in}")
+                            f"Воронка исключена. Pipeline_id: {lead.pipeline_id}, Исключенные воронки: {pipelines_not_in}", request_log_id=request_log_id)
                 return False
 
         # Проверка ответственных
-        responsible_users = filters.get('responsible_users')
-        if responsible_users and webhook.main_user_id not in responsible_users:
+        responsible_users = [str(x).strip() for x in filters.get('responsible_users', [])]
+        if responsible_users and str(webhook.main_user_id) not in responsible_users:
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Ответственный: {webhook.main_user_id}, фильтр: {responsible_users=}")
+                        f"Ответственный: {webhook.main_user_id}, фильтр: {responsible_users=}", request_log_id=request_log_id)
             return False
 
-        responsible_users_not_in = filters.get('responsible_users_not_in')
-        if responsible_users_not_in and webhook.main_user_id in responsible_users_not_in:
+        responsible_users_not_in = [str(x).strip() for x in filters.get('responsible_users_not_in', [])]
+        if responsible_users_not_in and str(webhook.main_user_id) in responsible_users_not_in:
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Ответственный: {webhook.main_user_id}, фильтр: {responsible_users_not_in=}")
+                        f"Ответственный: {webhook.main_user_id}, фильтр: {responsible_users_not_in=}", request_log_id=request_log_id)
             return False
 
         # Проверка даты создания звонка. Максимум 24 часа назад.
@@ -626,7 +667,7 @@ class AmoApi(AmoApiBase):
 
         if wh_date < yesterday_date:
             logger.info(f"[-] Вебхук AmoCRM - {webhook.account_subdomain} - "
-                        f"Не проходим по времени создания звонка. Время создания звонка: {wh_date}")
+                        f"Не проходим по времени создания звонка. Время создания звонка: {wh_date}", request_log_id=request_log_id)
             return False
 
         logger.info(f"[+] ЗВОНОК AmoCRM - {webhook.account_subdomain} - id: {webhook.account_id}")

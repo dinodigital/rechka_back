@@ -3,7 +3,6 @@ from loguru import logger
 from peewee import InterfaceError
 from time import sleep
 
-from config import config
 from data.models import create_db_tables_if_not_exists, main_db
 from telegram_bot.apps import main_app
 
@@ -65,17 +64,6 @@ signal.signal(signal.SIGTERM, stop_signal_handler)
 if __name__ == "__main__":
     # Проверка и создание таблиц в базе данных, если они не существуют
     create_db_tables_if_not_exists()
-
-    # Конфигурация Sentry для отслеживания ошибок
-    if config.BOT_SENTRY_DSN:
-        logger.info("Configuring Sentry")
-        import sentry_sdk
-        sentry_sdk.init(
-            dsn=config.BOT_SENTRY_DSN,
-            traces_sample_rate=1.0,
-            profiles_sample_rate=1.0,
-            environment=config.ENV,
-        )
 
     # Запуск бота с возможностью перезапуска при ошибках
     run_bot()

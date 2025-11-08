@@ -15,9 +15,11 @@ def update_model_for_all_modes(model_name: str):
     logger.info(f'Меняем модель нейронной сети для всех режимов на {model_name}.')
 
     with main_db:
-        modes = Mode.select()
+        modes = Mode.select().where(Mode.params.is_null(False))
         for mode in modes:
             params = mode.get_params()
+            if params is None:
+                continue
             old_model_name = params.get('final_model')
             if old_model_name != model_name:
                 params['final_model'] = model_name
@@ -142,7 +144,7 @@ def update_password(user_id: int, new_password: str):
 
 
 def main():
-    update_password(1764, "Sergio123$")
+    pass
 
 
 if __name__ == '__main__':
